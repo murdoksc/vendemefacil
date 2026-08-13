@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__VendemeFacilDb: ${VENDEMEFACIL_DB_CONNECTION}
+    ports:
+      - "5080:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "5173:80"
+    environment:
+      API_BASE_URL: http://api:8080
+    depends_on:
+      - api

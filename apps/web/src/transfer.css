@@ -1,0 +1,2 @@
+.product-actions{display:flex;gap:8px;align-items:center}.product-actions label{cursor:pointer}@media(max-width:760px){.product-actions{flex-wrap:wrap;margin-top:15px}}
+.return-list{margin:15px 0}.return-line{display:grid;grid-template-columns:1fr 100px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #edf0eb}.return-line strong,.return-line small{display:block}.return-line small{color:#74837c;margin-top:3px}.return-line input{height:38px;border:1px solid #dce2dc;border-radius:8px;padding:0 8px}

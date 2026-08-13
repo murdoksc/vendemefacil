@@ -1,0 +1,9 @@
+.git
+.tool-cache
+**/bin
+**/obj
+**/node_modules
+**/dist
+.env*
+database
+work

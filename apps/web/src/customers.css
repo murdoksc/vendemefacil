@@ -1,0 +1,9 @@
+.customer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; padding: 18px; }
+.customer-grid > .empty-state { grid-column: 1 / -1; }
+.customer-card { min-height: 125px; padding: 17px; border: 1px solid #e1e5df; border-radius: 13px; display: grid; grid-template-columns: 42px 1fr auto; gap: 12px; align-items: start; }
+.customer-avatar { width: 42px; height: 42px; border-radius: 12px; background: #e5f1ec; color: #26705b; display: grid; place-items: center; }
+.customer-avatar svg { width: 20px; }
+.customer-card strong, .customer-card span, .customer-card small { display: block; }
+.customer-card span { margin-top: 5px; color: #66776f; font-size: 10px; }
+.customer-card span svg { width: 12px; vertical-align: middle; margin-right: 5px; }
+.customer-card small { margin-top: 10px; color: #26705b; font-weight: 700; }

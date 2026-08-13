@@ -1,0 +1,14 @@
+.sales-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.sales-tabs button { height: 40px; padding: 0 14px; border: 1px solid #dce2dc; border-radius: 10px; background: white; display: flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 700; }
+.sales-tabs button.active { background: #e7f3ed; border-color: #71a392; color: #246c58; }
+.sales-tabs svg { width: 17px; }
+.cut-history { overflow: hidden; }
+.cut-head, .cut-row { display: grid; grid-template-columns: 1.5fr 1fr .8fr .8fr .8fr 38px; gap: 14px; align-items: center; padding: 0 20px; }
+.cut-head { height: 40px; background: #f7f8f5; color: #7b8982; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.cut-row { min-height: 70px; border-top: 1px solid #edf0eb; font-size: 11px; }
+.cut-row small { display: block; margin-top: 4px; color: #74837c; }
+.cash-report-modal{width:min(620px,100%)}.cash-report-receipt{width:80mm;max-width:100%;max-height:65vh;overflow:auto}.cash-report-receipt>p{margin:14px 0 6px;font-weight:700}
+.cut-difference { color: #b85d49; }
+.cash-preview { margin: 18px 0; padding: 14px; border-radius: 10px; background: #f5f7f3; display: grid; grid-template-columns: 1fr auto; gap: 8px; text-align: left; font-size: 11px; }
+.cash-preview strong { text-align: right; }
+@media(max-width:760px){.cut-head{display:none}.cut-row{grid-template-columns:1fr auto}.cut-row>:nth-child(2){display:none}}

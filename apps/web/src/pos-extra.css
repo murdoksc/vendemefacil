@@ -1,0 +1,12 @@
+.customer-choice{display:grid!important;grid-template-columns:1fr 42px;gap:7px}.customer-choice select{height:42px;border:1px solid #d9dfd9;border-radius:9px;padding:0 9px}.customer-choice button{border:1px solid #d9dfd9;border-radius:9px;background:#fff}.customer-choice svg{width:17px}.qty-control input{width:38px;text-align:center;border:0;font-weight:700}.pos-product-image{width:46px;height:46px;border-radius:11px;object-fit:cover}
+.cart-summary .pos-customer-search{display:grid!important;grid-template-columns:minmax(0,1fr) 42px;gap:7px;align-items:start;margin:0 0 12px;width:100%}
+.cart-summary .pos-customer-search>.catalog-search{display:flex;width:100%;height:42px;margin:0;padding:0 13px}
+.cart-summary .pos-customer-search>.catalog-search input{width:100%;height:auto;margin:0;padding:0;border:0;border-radius:0;background:transparent;font-size:12px;font-weight:600}
+.cart-summary .pos-customer-search>button{width:42px;height:42px;margin:0;display:grid;place-items:center}
+.cart-summary .pos-customer-search>.predictive-options{left:0;right:49px;top:42px;margin:0;display:block;max-height:230px;overflow:auto}
+.cart-summary .pos-customer-search>.predictive-options button{width:100%;height:auto;min-height:48px;border-radius:0}
+.receipt-brand{overflow:hidden}.receipt-brand img{width:100%;height:100%;object-fit:contain;display:block}
+.product-options button:hover,.product-options button.active{background:#edf7f2;outline:none}
+.connection-status{height:30px;padding:0 10px;border-radius:18px;display:flex;align-items:center;gap:6px;font-size:9px;font-weight:800}.connection-status i{width:7px;height:7px;border-radius:50%}.connection-status.online{background:#eaf6f0;color:#26705a}.connection-status.online i{background:#2b9b70}.connection-status.offline{background:#fff0ed;color:#ad5142}.connection-status.offline i{background:#d45e4d}@media(max-width:760px){.connection-status{padding:0 7px;font-size:0}}
+.layaway-receipt-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.layaway-receipt-actions .button{justify-content:center}
+.sale-detail>.detail-actions{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
