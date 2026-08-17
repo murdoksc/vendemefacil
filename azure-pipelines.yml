@@ -14,6 +14,10 @@ pool:
 variables:
   dockerHubServiceConnection: dockerhub-vendemefacil
   dockerHubNamespace: murdoksc
+  azureServiceConnection: azure-vendemefacil-production
+  resourceGroup: rg-vendemefacil-prod
+  apiContainerApp: ca-vendemefacil-api
+  webContainerApp: ca-vendemefacil-web
   imageTag: $(Build.BuildId)
 
 stages:
@@ -79,3 +83,106 @@ stages:
               tags: |
                 web-$(imageTag)
                 web-latest
+
+  - stage: Deploy
+    displayName: Desplegar en producción
+    dependsOn: Publish
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployProduction
+        displayName: Desplegar Container Apps
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - task: AzureCLI@2
+                  displayName: Desplegar y verificar Build $(imageTag)
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+
+                      az extension add --name containerapp --upgrade --only-show-errors
+
+                      api_image="docker.io/$(dockerHubNamespace)/vendemefacil:api-$(imageTag)"
+                      web_image="docker.io/$(dockerHubNamespace)/vendemefacil:web-$(imageTag)"
+
+                      previous_api_image=$(az containerapp show \
+                        --name "$(apiContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --query 'properties.template.containers[0].image' \
+                        --output tsv)
+
+                      previous_web_image=$(az containerapp show \
+                        --name "$(webContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --query 'properties.template.containers[0].image' \
+                        --output tsv)
+
+                      api_updated=false
+                      web_updated=false
+
+                      rollback() {
+                        echo "El despliegue no superó las verificaciones. Restaurando imágenes anteriores."
+                        if [ "$web_updated" = true ]; then
+                          az containerapp update \
+                            --name "$(webContainerApp)" \
+                            --resource-group "$(resourceGroup)" \
+                            --image "$previous_web_image" \
+                            --output none || true
+                        fi
+                        if [ "$api_updated" = true ]; then
+                          az containerapp update \
+                            --name "$(apiContainerApp)" \
+                            --resource-group "$(resourceGroup)" \
+                            --image "$previous_api_image" \
+                            --output none || true
+                        fi
+                      }
+
+                      trap rollback ERR
+
+                      az containerapp update \
+                        --name "$(apiContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --image "$api_image" \
+                        --output none
+                      api_updated=true
+
+                      api_fqdn=$(az containerapp show \
+                        --name "$(apiContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --query 'properties.configuration.ingress.fqdn' \
+                        --output tsv)
+
+                      curl --fail --silent --show-error \
+                        --retry 18 --retry-delay 10 --retry-all-errors \
+                        --max-time 20 "https://$api_fqdn/api/health" > /dev/null
+                      curl --fail --silent --show-error \
+                        --retry 6 --retry-delay 10 --retry-all-errors \
+                        --max-time 20 "https://$api_fqdn/api/health/database" > /dev/null
+
+                      az containerapp update \
+                        --name "$(webContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --image "$web_image" \
+                        --output none
+                      web_updated=true
+
+                      web_fqdn=$(az containerapp show \
+                        --name "$(webContainerApp)" \
+                        --resource-group "$(resourceGroup)" \
+                        --query 'properties.configuration.ingress.fqdn' \
+                        --output tsv)
+
+                      curl --fail --silent --show-error \
+                        --retry 18 --retry-delay 10 --retry-all-errors \
+                        --max-time 20 "https://$web_fqdn/health" > /dev/null
+
+                      trap - ERR
+                      echo "Build $(imageTag) desplegado y verificado correctamente."

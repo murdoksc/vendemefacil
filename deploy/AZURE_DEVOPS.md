@@ -11,7 +11,9 @@ También actualiza las etiquetas `api-latest` y `web-latest`. Las etiquetas con 
 número de compilación son inmutables y se usarán posteriormente para desplegar y
 regresar a una versión conocida.
 
-En esta primera etapa el pipeline no modifica producción.
+La etapa de despliegue usa el environment `production`, actualiza las dos Azure
+Container Apps con las etiquetas del mismo Build ID y comprueba sus endpoints de
+salud. Si una comprobación falla, intenta restaurar las imágenes anteriores.
 
 ## 1. Preparar Docker Hub
 
@@ -54,5 +56,16 @@ Al terminar, comprueba en el repositorio privado de Docker Hub que existan las
 etiquetas `api-latest`, `web-latest`, `api-<Build.BuildId>` y
 `web-<Build.BuildId>`.
 
-No elimines Azure Container Registry todavía. Primero se agregarán el despliegue
-controlado, la comprobación de salud y una prueba de regreso a la versión previa.
+## 5. Conectar y proteger producción
+
+1. Crea una conexión de Azure Resource Manager con federación de identidad,
+   limitada al grupo `rg-vendemefacil-prod`.
+2. Asigna exactamente el nombre `azure-vendemefacil-production`.
+3. Crea el environment `production` en Azure DevOps.
+4. Agrega una aprobación manual en **Approvals and checks**.
+5. Autoriza este pipeline para utilizar ambas conexiones de servicio.
+
+Cuando un cambio llega a `main`, la publicación termina primero. El deployment
+queda esperando la aprobación del environment antes de modificar las Container
+Apps. No elimines Azure Container Registry hasta probar el despliegue y su ruta
+de recuperación durante varios días.
