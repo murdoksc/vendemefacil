@@ -4,11 +4,11 @@ import { apiRequest, AuthSession } from "../lib/api";
 
 type Report = { grossSales: number; knownCost: number; estimatedProfit: number | null; transactions: number; averageTicket: number; itemsWithPendingCost: number; dailySales: { date: string; sales: number; transactions: number }[]; payments: { method: string; total: number; transactions: number }[]; topProducts: { productVariantId: string; product: string; variant: string; sku: string; quantity: number; sales: number; estimatedProfit: number | null; costPending: boolean }[] };
 const money = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
-const iso = (date: Date) => date.toISOString().slice(0, 10);
+const localIso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
 export function ReportsPage({ session }: { session: AuthSession }) {
-  const [from, setFrom] = useState(iso(new Date(Date.now() - 29 * 86400000)));
-  const [to, setTo] = useState(iso(new Date()));
+  const [from, setFrom] = useState(localIso(new Date(Date.now() - 29 * 86400000)));
+  const [to, setTo] = useState(localIso(new Date()));
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");

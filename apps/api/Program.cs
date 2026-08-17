@@ -757,10 +757,12 @@ api.MapGet("/layaways", async (string? status, string? query, VendemeFacilDbCont
     return Results.Ok(rows);
 });
 
-api.MapGet("/layaways/reminders", async (ITenantContext tenant, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+api.MapGet("/layaways/reminders", async (HttpContext context, ITenantContext tenant, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     var reminderDays = await db.Tenants.Where(x => x.Id == tenant.TenantId).Select(x => x.LayawayReminderDaysBefore).SingleAsync(cancellationToken);
-    var limit = DateTimeOffset.UtcNow.Date.AddDays(reminderDays + 1);
+    var zone = ClientTimeZone.From(context);
+    var today = ClientTimeZone.Today(zone);
+    var limit = ClientTimeZone.StartOfDayUtc(today.AddDays(reminderDays + 1), zone);
     return Results.Ok(await db.Layaways.AsNoTracking().Where(x => x.Status == LayawayStatus.Active && x.DueAtUtc < limit)
         .OrderBy(x => x.DueAtUtc).Select(x => new { x.Id, x.Folio, x.DueAtUtc, Customer = x.Customer.Name, x.Customer.Phone, Balance = x.Total - (x.Payments.Sum(p => (decimal?)p.Amount) ?? 0), IsOverdue = x.DueAtUtc < DateTimeOffset.UtcNow }).ToListAsync(cancellationToken));
 });
@@ -824,8 +826,10 @@ api.MapPost("/layaways/{layawayId:guid}/cancel", async (Guid layawayId, HttpCont
 
 api.MapGet("/dashboard", async (HttpContext context, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
-    var todayUtc = DateTimeOffset.UtcNow.Date;
-    var tomorrowUtc = todayUtc.AddDays(1);
+    var zone = ClientTimeZone.From(context);
+    var today = ClientTimeZone.Today(zone);
+    var todayUtc = ClientTimeZone.StartOfDayUtc(today, zone);
+    var tomorrowUtc = ClientTimeZone.StartOfDayUtc(today.AddDays(1), zone);
     var completedToday = db.Sales.AsNoTracking().Where(x => x.Status == SaleStatus.Completed && x.SoldAtUtc >= todayUtc && x.SoldAtUtc < tomorrowUtc);
     var salesToday = await completedToday.SumAsync(x => (decimal?)x.Total, cancellationToken) ?? 0;
     var transactionsToday = await completedToday.CountAsync(cancellationToken);
@@ -834,9 +838,10 @@ api.MapGet("/dashboard", async (HttpContext context, VendemeFacilDbContext db, C
     var lowStock = await db.ProductVariants.CountAsync(
         x => x.IsActive && db.InventoryBalances.Where(b => b.ProductVariantId == x.Id).Sum(b => b.Quantity) <= x.MinimumStock,
         cancellationToken);
-    var weekStart = todayUtc.AddDays(-6);
-    var weeklyRaw = await db.Sales.AsNoTracking().Where(x => x.Status == SaleStatus.Completed && x.SoldAtUtc >= weekStart && x.SoldAtUtc < tomorrowUtc).GroupBy(x => x.SoldAtUtc.Date).Select(g => new { Date = g.Key, Sales = g.Sum(x => x.Total) }).ToListAsync(cancellationToken);
-    var weeklySales = Enumerable.Range(0, 7).Select(i => { var date = weekStart.AddDays(i); return new { Date = DateOnly.FromDateTime(date), Sales = weeklyRaw.Where(x => x.Date == date).Sum(x => x.Sales) }; }).ToList();
+    var weekStart = today.AddDays(-6);
+    var weekStartUtc = ClientTimeZone.StartOfDayUtc(weekStart, zone);
+    var weeklyRaw = await db.Sales.AsNoTracking().Where(x => x.Status == SaleStatus.Completed && x.SoldAtUtc >= weekStartUtc && x.SoldAtUtc < tomorrowUtc).Select(x => new { x.SoldAtUtc, x.Total }).ToListAsync(cancellationToken);
+    var weeklySales = Enumerable.Range(0, 7).Select(i => { var date = weekStart.AddDays(i); return new { Date = date, Sales = weeklyRaw.Where(x => ClientTimeZone.LocalDate(x.SoldAtUtc, zone) == date).Sum(x => x.Total) }; }).ToList();
     var recentProducts = await db.ProductVariants.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(5).Select(x => new { x.Id, Name = x.Product.Name, Variant = x.Name, x.Sku, x.Price, Stock = db.InventoryBalances.Where(b => b.ProductVariantId == x.Id).Sum(b => b.Quantity), x.MinimumStock }).ToListAsync(cancellationToken);
     var currentUserId = Guid.Parse(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")!);
     var cashOpen = await db.CashSessions.AnyAsync(x => x.OpenedByUserId == currentUserId && x.Status == CashSessionStatus.Open, cancellationToken);
@@ -865,25 +870,27 @@ reportsAdmin.MapPost("/sales/backfill-costs", async (VendemeFacilDbContext db, C
     if (updated > 0) await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new { UpdatedLines = updated, RemainingLines = pendingLines.Count - updated });
 });
-reportsAdmin.MapGet("/sales", async (DateOnly? from, DateOnly? to, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+reportsAdmin.MapGet("/sales", async (DateOnly? from, DateOnly? to, HttpContext context, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
-    var endDate = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+    var zone = ClientTimeZone.From(context);
+    var endDate = to ?? ClientTimeZone.Today(zone);
     var startDate = from ?? endDate.AddDays(-29);
     if (startDate > endDate || endDate.DayNumber - startDate.DayNumber > 365)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["period"] = ["Selecciona un periodo válido de hasta 365 días."] });
-    var fromUtc = new DateTimeOffset(startDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-    var toUtc = new DateTimeOffset(endDate.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+    var fromUtc = ClientTimeZone.StartOfDayUtc(startDate, zone);
+    var toUtc = ClientTimeZone.StartOfDayUtc(endDate.AddDays(1), zone);
     var sales = db.Sales.AsNoTracking().Where(x => x.Status == SaleStatus.Completed && x.SoldAtUtc >= fromUtc && x.SoldAtUtc < toUtc);
     var gross = await sales.SumAsync(x => (decimal?)x.Total, cancellationToken) ?? 0;
     var transactions = await sales.CountAsync(cancellationToken);
     var lines = db.SaleItems.AsNoTracking().Where(x => sales.Select(s => s.Id).Contains(x.SaleId));
     var knownCost = await lines.SumAsync(x => (decimal?)(x.UnitCost * x.Quantity), cancellationToken) ?? 0;
     var pendingCost = await lines.CountAsync(x => x.UnitCost == 0, cancellationToken);
-    var dailyRaw = await sales.GroupBy(x => x.SoldAtUtc.Date).Select(g => new { Date = g.Key, Sales = g.Sum(x => x.Total), Transactions = g.Count() }).OrderBy(x => x.Date).ToListAsync(cancellationToken);
+    var dailySource = await sales.Select(x => new { x.SoldAtUtc, x.Total }).ToListAsync(cancellationToken);
+    var dailyRaw = dailySource.GroupBy(x => ClientTimeZone.LocalDate(x.SoldAtUtc, zone)).Select(g => new { Date = g.Key, Sales = g.Sum(x => x.Total), Transactions = g.Count() }).OrderBy(x => x.Date).ToList();
     var payments = await db.SalePayments.AsNoTracking().Where(x => sales.Select(s => s.Id).Contains(x.SaleId)).GroupBy(x => x.Method).Select(g => new PaymentBreakdown(g.Key.ToString(), g.Sum(x => x.Amount), g.Select(x => x.SaleId).Distinct().Count())).ToListAsync(cancellationToken);
     var top = await lines.GroupBy(x => new { x.ProductVariantId, x.ProductName, x.VariantName, x.Sku }).Select(g => new { g.Key.ProductVariantId, Product = g.Key.ProductName, Variant = g.Key.VariantName, g.Key.Sku, Quantity = g.Sum(x => x.Quantity), Sales = g.Sum(x => x.LineTotal), Cost = g.Sum(x => x.UnitCost * x.Quantity), CostPending = g.Any(x => x.UnitCost == 0) }).OrderByDescending(x => x.Quantity).Take(10).ToListAsync(cancellationToken);
     var result = new SalesReportSummary(fromUtc, toUtc.AddTicks(-1), gross, knownCost, pendingCost == 0 ? gross - knownCost : null, transactions, transactions == 0 ? 0 : gross / transactions, pendingCost,
-        dailyRaw.Select(x => new DailySalesPoint(DateOnly.FromDateTime(x.Date), x.Sales, x.Transactions)).ToList(), payments,
+        dailyRaw.Select(x => new DailySalesPoint(x.Date, x.Sales, x.Transactions)).ToList(), payments,
         top.Select(x => new TopProduct(x.ProductVariantId, x.Product, x.Variant, x.Sku, x.Quantity, x.Sales, x.CostPending ? null : x.Sales - x.Cost, x.CostPending)).ToList());
     return Results.Ok(result);
 });

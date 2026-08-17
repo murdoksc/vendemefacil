@@ -137,10 +137,8 @@ function App() {
         .then(setReminders)
         .catch(() => undefined);
     void refresh();
-    const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("vendemefacil:reminders-changed", refresh);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener("vendemefacil:reminders-changed", refresh);
     };
   }, [session, activePage]);

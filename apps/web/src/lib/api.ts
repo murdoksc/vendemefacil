@@ -61,10 +61,12 @@ async function readError(response: Response) {
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}, session?: AuthSession | null): Promise<T> {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   const response = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'X-Time-Zone': timeZone,
       ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
       ...options.headers,
     },
