@@ -67,5 +67,5 @@ etiquetas `api-latest`, `web-latest`, `api-<Build.BuildId>` y
 
 Cuando un cambio llega a `main`, la publicación termina primero. El deployment
 queda esperando la aprobación del environment antes de modificar las Container
-Apps. No elimines Azure Container Registry hasta probar el despliegue y su ruta
-de recuperación durante varios días.
+Apps. Producción usa exclusivamente las imágenes privadas de Docker Hub; Azure
+Container Registry no forma parte del flujo actual.

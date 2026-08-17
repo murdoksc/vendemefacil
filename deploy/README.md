@@ -1,61 +1,48 @@
-# Primer despliegue en Azure Container Apps
+# Despliegue de VendemeFacil
 
-Este despliegue usa dos Container Apps y construye las imágenes remotamente en Azure Container Registry. Docker Desktop no es necesario.
+Producción se publica mediante Azure DevOps y utiliza imágenes privadas de
+Docker Hub. Azure Container Registry no forma parte de la arquitectura actual.
 
-## 1. Preparar Azure CLI
+## Componentes
 
-```powershell
-az login
-az account list --output table
-az account set --subscription "ID O NOMBRE DE LA SUSCRIPCIÓN"
+- Repositorio de imágenes: `murdoksc/vendemefacil` en Docker Hub.
+- API: etiqueta `api-<Build.BuildId>`.
+- Frontend: etiqueta `web-<Build.BuildId>`.
+- Ejecución: Azure Container Apps en `rg-vendemefacil-prod`.
+- Pipeline: `/azure-pipelines.yml`.
+- Environment protegido: `production`.
+
+## Publicación normal
+
+Un cambio enviado a `main` inicia el pipeline. El proceso:
+
+1. Compila el API y el frontend.
+2. Publica imágenes inmutables con el mismo Build ID.
+3. Espera aprobación manual del environment `production`.
+4. Despliega primero el API y comprueba su salud y la conexión a la base de
+   datos.
+5. Despliega el frontend y comprueba `/health`.
+6. Si una verificación falla, intenta restaurar las imágenes anteriores.
+
+No es necesario ejecutar comandos de Docker ni Azure CLI para una publicación
+normal. Los detalles de conexiones, permisos y configuración inicial están en
+[`AZURE_DEVOPS.md`](AZURE_DEVOPS.md).
+
+## Imágenes y recuperación
+
+Para recuperar una compilación anterior, vuelve a desplegar las dos etiquetas
+del mismo Build ID:
+
+```text
+docker.io/murdoksc/vendemefacil:api-<Build.BuildId>
+docker.io/murdoksc/vendemefacil:web-<Build.BuildId>
 ```
 
-Comprueba qué suscripción está activa:
+No uses `api-latest` o `web-latest` para producción. Las etiquetas numéricas
+permiten identificar exactamente la versión desplegada.
 
-```powershell
-az account show --output table
-```
+## Secretos
 
-## 2. Crear una clave JWT
-
-Genera una clave aleatoria y guárdala temporalmente en un administrador de contraseñas:
-
-```powershell
-$bytes = New-Object byte[] 64
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-[Convert]::ToBase64String($bytes)
-```
-
-No guardes esa clave en Git ni en un archivo del proyecto.
-
-## 3. Ejecutar el despliegue
-
-Desde la raíz del repositorio:
-
-```powershell
-cd C:\repos\vendemefacil
-.\deploy\azure-deploy.ps1
-```
-
-El script solicitará de forma oculta:
-
-- La cadena completa de SQL Server.
-- La clave JWT.
-
-Al terminar mostrará la URL pública de la web y la URL de salud del API.
-
-## 4. Probar
-
-1. Abre la URL `ca-vendemefacil-web...azurecontainerapps.io`.
-2. Inicia sesión con el negocio existente.
-3. Consulta productos y reportes.
-4. Registra una venta de prueba y cancélala.
-5. Revisa que el inventario se restaure.
-
-## Consideraciones
-
-- Ambas aplicaciones escalan de 0 a 2 réplicas. La primera solicitud tras un periodo sin uso puede tardar algunos segundos.
-- SQL Server continúa en GoDaddy. Debe aceptar conexiones desde Azure.
-- Los secretos se almacenan como secretos de Container Apps.
-- Para una etapa posterior conviene reemplazar las credenciales administrativas de ACR por identidad administrada.
-- Configura `vendemefacil.com` solamente después de validar la URL generada por Azure.
+La cadena SQL, la clave JWT y el token de lectura de Docker Hub se almacenan
+como secretos de Azure Container Apps. No deben guardarse en Git, Docker Hub ni
+variables de texto dentro del pipeline.
