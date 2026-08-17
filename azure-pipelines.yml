@@ -73,13 +73,24 @@ stages:
                 api-latest
 
           - task: Docker@2
-            displayName: Publicar imagen del frontend
+            displayName: Construir imagen del frontend
             inputs:
-              command: buildAndPush
+              command: build
               containerRegistry: $(dockerHubServiceConnection)
               repository: $(dockerHubNamespace)/vendemefacil
               dockerfile: apps/web/Dockerfile
               buildContext: .
+              arguments: --build-arg APP_VERSION=$(imageTag)
+              tags: |
+                web-$(imageTag)
+                web-latest
+
+          - task: Docker@2
+            displayName: Publicar imagen del frontend
+            inputs:
+              command: push
+              containerRegistry: $(dockerHubServiceConnection)
+              repository: $(dockerHubNamespace)/vendemefacil
               tags: |
                 web-$(imageTag)
                 web-latest

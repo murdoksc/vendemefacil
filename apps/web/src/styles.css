@@ -20,6 +20,7 @@ button { color: inherit; }
 .nav-item:hover { background: var(--brand-hover); color: white; }
 .nav-item.active { background: #f5c45e; color: #173d34; box-shadow: 0 7px 20px #0b2c2455; }
 .sidebar-bottom { margin-top: auto; }
+.app-version { margin: 14px 13px 0; color: #7fa99b; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .mode-card { margin-top: 16px; padding: 15px; border: 1px solid #376259; border-radius: 13px; background: #1a493e; }
 .mode-card span, .mode-card strong { display: block; }
 .mode-card span { color: #f5c45e; font-size: 11px; font-weight: 700; text-transform: uppercase; }

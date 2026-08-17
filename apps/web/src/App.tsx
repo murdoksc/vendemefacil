@@ -62,6 +62,7 @@ const reminderMoney = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
 });
+const appVersion = import.meta.env.VITE_APP_VERSION || "local";
 
 function applyTheme(settings: BusinessSettings) {
   const root = document.documentElement.style;
@@ -261,6 +262,9 @@ function App() {
               </button>
             </>
           )}
+          <div className="app-version" title={`Build ${appVersion}`}>
+            Versión {appVersion}
+          </div>
         </div>
       </aside>
 

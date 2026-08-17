@@ -1,5 +1,7 @@
 FROM node:24-alpine AS build
 WORKDIR /app
+ARG APP_VERSION=local
+ENV VITE_APP_VERSION=$APP_VERSION
 COPY apps/web/package*.json ./
 RUN npm ci
 COPY apps/web/ .
