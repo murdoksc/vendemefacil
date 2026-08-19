@@ -41,6 +41,17 @@ public sealed class AppUser : TenantEntity
     public UserRole Role { get; set; } = UserRole.Cashier;
     public bool CanViewCosts { get; set; }
     public bool IsActive { get; set; } = true;
+    public int SecurityVersion { get; set; }
+}
+
+public sealed class PasswordResetToken : Entity
+{
+    public Guid TenantId { get; set; }
+    public Guid UserId { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? UsedAtUtc { get; set; }
+    public AppUser User { get; set; } = null!;
 }
 
 public sealed class Customer : TenantEntity

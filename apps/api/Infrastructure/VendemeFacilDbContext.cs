@@ -10,6 +10,7 @@ public sealed class VendemeFacilDbContext(
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
@@ -63,6 +64,17 @@ public sealed class VendemeFacilDbContext(
             .WithMany()
             .HasForeignKey(x => x.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.UserId, x.UsedAtUtc });
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsFixedLength();
+            entity.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => new { x.TenantId, x.UserId })
+                .HasPrincipalKey(x => new { x.TenantId, x.Id })
+                .OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<Customer>().HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Category>()
             .HasOne<Tenant>()

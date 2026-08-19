@@ -19,7 +19,8 @@ public sealed class JwtTokenService(IConfiguration configuration)
             new Claim("tenant_id", tenant.Id.ToString()),
             new Claim(ClaimTypes.Name, user.DisplayName),
             new Claim(ClaimTypes.Role, user.Role.ToString())
-            ,new Claim("can_view_costs", user.CanViewCosts.ToString().ToLowerInvariant())
+            ,new Claim("can_view_costs", user.CanViewCosts.ToString().ToLowerInvariant()),
+            new Claim("security_version", user.SecurityVersion.ToString())
         };
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]
             ?? throw new InvalidOperationException("Jwt:Key is not configured.")));

@@ -1,12 +1,16 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
 using System.Data;
+using System.Threading.RateLimiting;
 using VendemeFacil.Api.Contracts;
 using VendemeFacil.Api.Domain;
 using VendemeFacil.Api.Infrastructure;
@@ -24,6 +28,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
+builder.Services.AddSingleton<PasswordResetEmailQueue>();
+builder.Services.AddHostedService<PasswordResetEmailWorker>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -38,8 +44,42 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var userIdValue = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Principal?.FindFirstValue("sub");
+                var versionValue = context.Principal?.FindFirstValue("security_version");
+                var tokenVersion = int.TryParse(versionValue, out var parsedVersion) ? parsedVersion : 0;
+                if (!Guid.TryParse(userIdValue, out var userId))
+                {
+                    context.Fail("Usuario inválido.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<VendemeFacilDbContext>();
+                var user = await db.Users.IgnoreQueryFilters().AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.Id == userId, context.HttpContext.RequestAborted);
+                if (user is null || !user.IsActive || user.SecurityVersion != tokenVersion)
+                    context.Fail("La sesión ya no es válida.");
+            }
+        };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("password-recovery", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddDbContext<VendemeFacilDbContext>(options =>
     options.UseSqlServer(databaseConnection, sql => sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null)));
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -68,6 +108,7 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
         statusCode: StatusCodes.Status500InternalServerError).ExecuteAsync(context);
 }));
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -131,8 +172,8 @@ auth.MapPost("/login", async (
     VendemeFacilDbContext db,
     CancellationToken cancellationToken) =>
 {
-    var slug = request.BusinessSlug.Trim().ToLowerInvariant();
-    var email = request.Email.Trim().ToLowerInvariant();
+    var slug = (request.BusinessSlug ?? string.Empty).Trim().ToLowerInvariant();
+    var email = (request.Email ?? string.Empty).Trim().ToLowerInvariant();
     var tenant = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(x => x.Slug == slug && x.IsActive, cancellationToken);
     if (tenant is null) return Results.Unauthorized();
 
@@ -144,6 +185,114 @@ auth.MapPost("/login", async (
 
     return Results.Ok(tokens.Create(tenant, user));
 });
+
+auth.MapPost("/forgot-password", async (
+    ForgotPasswordRequest request,
+    PasswordResetEmailQueue emailQueue,
+    IConfiguration configuration,
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var elapsed = Stopwatch.StartNew();
+    var slug = request.BusinessSlug.Trim().ToLowerInvariant();
+    var email = request.Email.Trim().ToLowerInvariant();
+    var tenant = await db.Tenants.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Slug == slug && x.IsActive, cancellationToken);
+    AppUser? user = null;
+    if (tenant is not null)
+        user = await db.Users.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(x => x.TenantId == tenant.Id && x.Email == email && x.IsActive, cancellationToken);
+
+    if (tenant is not null && user is not null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var recoveryRecentlyRequested = await db.PasswordResetTokens.AsNoTracking()
+            .AnyAsync(x => x.UserId == user.Id && x.CreatedAtUtc > now.AddMinutes(-2), cancellationToken);
+        if (recoveryRecentlyRequested)
+            goto RecoveryResponse;
+
+        await db.PasswordResetTokens
+            .Where(x => x.UserId == user.Id && x.UsedAtUtc == null)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.UsedAtUtc, now), cancellationToken);
+
+        var token = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            TenantId = tenant.Id,
+            UserId = user.Id,
+            TokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))),
+            ExpiresAtUtc = now.AddMinutes(30)
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var frontendBaseUrl = (configuration["Email:FrontendBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+        emailQueue.TryQueue(new PasswordResetEmail(
+            user.Email,
+            user.DisplayName,
+            tenant.Name,
+            $"{frontendBaseUrl}/reset-password#token={Uri.EscapeDataString(token)}"));
+    }
+
+RecoveryResponse:
+    var minimumDuration = TimeSpan.FromMilliseconds(350);
+    if (elapsed.Elapsed < minimumDuration)
+        await Task.Delay(minimumDuration - elapsed.Elapsed, cancellationToken);
+
+    return Results.Accepted(value: new
+    {
+        message = "Si los datos corresponden a una cuenta activa, recibirás un correo con instrucciones."
+    });
+}).RequireRateLimiting("password-recovery");
+
+auth.MapPost("/reset-password", async (
+    ResetPasswordRequest request,
+    IPasswordHasher<AppUser> passwordHasher,
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrEmpty(request.NewPassword) || request.NewPassword.Length < 8)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["newPassword"] = ["La contraseña debe contener al menos 8 caracteres."] });
+    if (request.NewPassword != request.ConfirmPassword)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["confirmPassword"] = ["Las contraseñas no coinciden."] });
+    if (string.IsNullOrWhiteSpace(request.Token))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["token"] = ["El enlace no es válido o ya venció."] });
+
+    var now = DateTimeOffset.UtcNow;
+    var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Token)));
+    IResult result = Results.ValidationProblem(new Dictionary<string, string[]> { ["token"] = ["El enlace no es válido o ya venció."] });
+    var executionStrategy = db.Database.CreateExecutionStrategy();
+    await executionStrategy.ExecuteAsync(async () =>
+    {
+        db.ChangeTracker.Clear();
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var resetToken = await db.PasswordResetTokens.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.TokenHash == tokenHash && x.UsedAtUtc == null && x.ExpiresAtUtc > now, cancellationToken);
+        if (resetToken is null)
+            return;
+
+        var claimed = await db.PasswordResetTokens
+            .Where(x => x.Id == resetToken.Id && x.UsedAtUtc == null && x.ExpiresAtUtc > now)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.UsedAtUtc, now), cancellationToken);
+        if (claimed != 1)
+            return;
+
+        var user = await db.Users.IgnoreQueryFilters().SingleOrDefaultAsync(
+            x => x.Id == resetToken.UserId && x.TenantId == resetToken.TenantId && x.IsActive,
+            cancellationToken);
+        if (user is null)
+            return;
+
+        user.PasswordHash = passwordHasher.HashPassword(user, request.NewPassword);
+        user.SecurityVersion++;
+        await db.PasswordResetTokens
+            .Where(x => x.UserId == user.Id && x.UsedAtUtc == null)
+            .ExecuteUpdateAsync(update => update.SetProperty(x => x.UsedAtUtc, now), cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        result = Results.NoContent();
+    });
+    return result;
+}).RequireRateLimiting("password-recovery");
 
 var api = app.MapGroup("/api/v1").RequireAuthorization();
 api.AddEndpointFilter(async (context, next) =>
