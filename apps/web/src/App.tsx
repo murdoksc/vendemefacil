@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Menu,
   MessageCircle,
+  Mail,
   PackageSearch,
   Plus,
   ReceiptText,
@@ -37,6 +38,7 @@ import { UsersPage } from "./components/UsersPage";
 import { CustomersPage } from "./components/CustomersPage";
 import { LayawaysPage } from "./components/LayawaysPage";
 import { apiRequest, AuthSession, clearSession, loadSession } from "./lib/api";
+import { emailDocument } from "./lib/emailDocument";
 
 const navItems = [
   { label: "Inicio", icon: LayoutDashboard },
@@ -55,6 +57,7 @@ type LayawayReminder = {
   dueAtUtc: string;
   customer: string;
   phone: string | null;
+  email: string | null;
   balance: number;
   isOverdue: boolean;
 };
@@ -184,6 +187,16 @@ function App() {
       "_blank",
       "noopener,noreferrer",
     );
+  };
+  const openReminderEmail = async (reminder: LayawayReminder) => {
+    const dueDate = new Date(reminder.dueAtUtc).toLocaleDateString("es-MX");
+    const content = `Hola ${reminder.customer},\n\nTe recordamos que tu apartado ${reminder.folio} tiene un saldo de ${reminderMoney.format(reminder.balance)} y vence el ${dueDate}.\n\n¡Gracias!`;
+    try {
+      if (await emailDocument({ session, documentType: "layaway-reminder", reference: reminder.folio, content, defaultEmail: reminder.email }))
+        window.alert("Recordatorio enviado por correo.");
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : "No pudimos enviar el recordatorio por correo.");
+    }
   };
   const isManager =
     session.user.role === "Owner" || session.user.role === "Administrator";
@@ -367,6 +380,7 @@ function App() {
                           >
                             <MessageCircle />
                           </button>
+                          <button className="reminder-whatsapp reminder-email" title="Enviar por email" onClick={() => void openReminderEmail(reminder)}><Mail /></button>
                         </article>
                       ))
                     ) : (
@@ -409,9 +423,9 @@ function App() {
         ) : activePage === "Ventas" ? (
           <SalesPage session={session} businessName={businessSettings?.name} logoUrl={businessSettings?.logoUrl} ticketMessage={businessSettings?.ticketMessage} />
         ) : activePage === "Apartados" ? (
-          <LayawaysPage session={session} />
+          <LayawaysPage session={session} allowNegativeStock={businessSettings?.allowNegativeStock ?? false} />
         ) : activePage === "Punto de venta" ? (
-          <PointOfSalePage session={session} businessName={businessSettings?.name} logoUrl={businessSettings?.logoUrl} ticketMessage={businessSettings?.ticketMessage} />
+          <PointOfSalePage session={session} businessName={businessSettings?.name} logoUrl={businessSettings?.logoUrl} ticketMessage={businessSettings?.ticketMessage} allowNegativeStock={businessSettings?.allowNegativeStock ?? false} />
         ) : activePage === "Productos" ? (
           <ProductsPage session={session} openCreate={productCreateRequest} />
         ) : activePage === "Inventario" && isManager ? (

@@ -11,17 +11,20 @@ import {
   UserPlus,
   WalletCards,
   MessageCircle,
+  Mail,
   X,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
 import { loadPrintSettings } from "../lib/qzPrinting";
+import { emailDocument } from "../lib/emailDocument";
 type Customer = { id: string; name: string; phone?: string | null; email?: string | null };
 type Branch = { id: string; name: string };
 type Cash = { id: string; branchId: string };
 type Line = { product: ApiProduct; quantity: number };
 type Receipt = {
+  id: string;
   folio: string;
   soldAtUtc: string;
   subtotal: number;
@@ -32,6 +35,7 @@ type Receipt = {
   changeAmount: number;
   customer?: string;
   customerPhone?: string | null;
+  customerEmail?: string | null;
   items: {
     productName: string;
     variantName: string;
@@ -44,7 +48,7 @@ const money = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
 });
-export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null }) {
+export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage, allowNegativeStock }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null; allowNegativeStock: boolean }) {
   const autoPrintedFolio = useRef("");
   const [products, setProducts] = useState<ApiProduct[]>([]),
     [branches, setBranches] = useState<Branch[]>([]),
@@ -83,7 +87,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
         ? products
             .filter(
               (x) =>
-                x.stock > 0 &&
+                (allowNegativeStock || x.stock > 0) &&
                 `${x.name} ${x.variant} ${x.sku} ${x.barcode ?? ""}`
                   .toLowerCase()
                   .includes(query.toLowerCase()),
@@ -132,7 +136,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
       return found
         ? current.map((x) =>
             x === found
-              ? { ...x, quantity: Math.min(x.quantity + 1, p.stock) }
+              ? { ...x, quantity: allowNegativeStock ? x.quantity + 1 : Math.min(x.quantity + 1, p.stock) }
               : x,
           )
         : [...current, { product: p, quantity: 1 }];
@@ -144,7 +148,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
       c
         .map((x) =>
           x.product.variantId === id
-            ? { ...x, quantity: Math.min(x.product.stock, Math.max(0, value)) }
+            ? { ...x, quantity: allowNegativeStock ? Math.max(0, value) : Math.min(x.product.stock, Math.max(0, value)) }
             : x,
         )
         .filter((x) => x.quantity > 0),
@@ -303,7 +307,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
         session,
       );
       const selectedCustomer = customers.find((customer) => customer.id === customerId);
-      setReceipt({ ...r, customer: selectedCustomer?.name ?? "Público general", customerPhone: selectedCustomer?.phone });
+      setReceipt({ ...r, customer: selectedCustomer?.name ?? "Público general", customerPhone: selectedCustomer?.phone, customerEmail: selectedCustomer?.email });
       setCart([]);
       setDiscount("0");
       setReceived("");
@@ -327,6 +331,16 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
     const lines = data.items.map((item) => `• ${item.quantity} x ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
     const text = `🧾 *${businessName ?? session.user.businessName}*\n*Ticket de venta*\n\nFolio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\nSubtotal: ${money.format(data.subtotal)}\nDescuento: -${money.format(data.discount)}\n*TOTAL: ${money.format(data.total)}*\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  }
+  async function sendSaleEmail(data: Receipt) {
+    const lines = data.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
+    const content = `Folio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\nSubtotal: ${money.format(data.subtotal)}\nDescuento: -${money.format(data.discount)}\nTOTAL: ${money.format(data.total)}\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
+    try {
+      if (await emailDocument({ session, documentType: "sale-ticket", reference: data.folio, content, defaultEmail: data.customerEmail }))
+        window.alert("Ticket enviado por correo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos enviar el ticket por correo.");
+    }
   }
   if (!cash)
     return (
@@ -405,7 +419,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
         )}
         <div className="pos-products">
           {products
-            .filter((x) => x.stock > 0)
+            .filter((x) => allowNegativeStock || x.stock > 0)
             .slice(0, 30)
             .map((p, i) => (
               <button key={p.variantId} onClick={() => add(p)}>
@@ -704,6 +718,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage 
               Imprimir ticket
             </button>
             <button className="button secondary print-button" disabled={!receipt.customerPhone} onClick={() => sendSaleWhatsApp(receipt)}><MessageCircle />Enviar por WhatsApp</button>
+            <button className="button secondary print-button" onClick={() => void sendSaleEmail(receipt)}><Mail />Enviar por email</button>
           </div>
         </div>
       )}

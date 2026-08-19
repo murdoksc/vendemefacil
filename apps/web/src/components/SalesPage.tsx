@@ -4,6 +4,7 @@ import {
   History,
   Printer,
   MessageCircle,
+  Mail,
   ReceiptText,
   Search,
   X,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
+import { emailDocument } from "../lib/emailDocument";
 type Sale = {
   id: string;
   folio: string;
@@ -23,6 +25,7 @@ type Sale = {
 type Detail = Sale & {
   customer: string;
   customerPhone: string | null;
+  customerEmail: string | null;
   items: {
     id: string;
     productVariantId: string;
@@ -121,6 +124,26 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
     const lines = data.items.map((item) => `• ${item.quantity} x ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
     const text = `🧾 *${businessName ?? session.user.businessName}*\n*Ticket de venta*\n\nFolio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\n*TOTAL: ${money.format(data.total)}*\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  }
+  async function sendSaleEmail(data: Detail) {
+    const lines = data.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
+    const content = `Folio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\nTOTAL: ${money.format(data.total)}\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
+    try {
+      if (await emailDocument({ session, documentType: "sale-ticket", reference: data.folio, content, defaultEmail: data.customerEmail }))
+        window.alert("Ticket enviado por correo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos enviar el ticket por correo.");
+    }
+  }
+  async function sendCutEmail(report: CashReport) {
+    const paymentLines = [...report.salePayments.map((x) => `Ventas · ${method(x.method)}: ${money.format(x.total)}`), ...report.layawayPayments.map((x) => `Apartados · ${method(x.method)}: ${money.format(x.total)}`)].join("\n");
+    const content = `Sucursal: ${report.branch}\nResponsable: ${report.user}\nApertura: ${new Date(report.openedAtUtc).toLocaleString("es-MX")}\nCierre: ${report.closedAtUtc ? new Date(report.closedAtUtc).toLocaleString("es-MX") : "Caja abierta"}\n\nFondo inicial: ${money.format(report.openingAmount)}\nVentas: ${money.format(report.salesTotal)}\nApartados: ${money.format(report.layawayTotal)}\n${paymentLines}\n\nEsperado: ${money.format(report.expectedAmount)}${report.countedAmount !== null ? `\nContado: ${money.format(report.countedAmount)}\nDiferencia: ${money.format(report.differenceAmount ?? 0)}` : ""}`;
+    try {
+      if (await emailDocument({ session, documentType: "cash-report", reference: report.id.slice(0, 8).toUpperCase(), content, defaultEmail: session.user.email }))
+        window.alert("Corte de caja enviado por correo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos enviar el corte por correo.");
+    }
   }
   async function load() {
     try {
@@ -430,6 +453,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
                 Imprimir
               </button>
               <button className="button secondary" disabled={!detail.customerPhone} onClick={() => sendSaleWhatsApp(detail)}><MessageCircle />WhatsApp</button>
+              <button className="button secondary" onClick={() => void sendSaleEmail(detail)}><Mail />Email</button>
               {detail.status !== "Cancelled" && (
                 <button
                   className="button secondary"
@@ -646,6 +670,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
             <CashReportReceipt report={cutReport} businessName={businessName ?? session.user.businessName} logoUrl={logoUrl} />
             <div className="detail-actions">
               <button className="button primary" onClick={() => printReceipt(document.getElementById("cash-report-receipt"))}><Printer /> Imprimir corte</button>
+              <button className="button secondary" onClick={() => void sendCutEmail(cutReport)}><Mail /> Enviar por email</button>
               <button className="button secondary" onClick={() => { setCutReport(null); setTab("cuts"); }}>Cerrar</button>
             </div>
           </div>

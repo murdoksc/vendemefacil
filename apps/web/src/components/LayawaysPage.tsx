@@ -7,14 +7,16 @@ import {
   Search,
   WalletCards,
   Printer,
+  Mail,
   X,
   XCircle,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
+import { emailDocument } from "../lib/emailDocument";
 
-type Customer = { id: string; name: string; phone: string | null };
+type Customer = { id: string; name: string; phone: string | null; email: string | null };
 type Branch = { id: string; name: string };
 type LayawayItem = {
   id: string;
@@ -44,6 +46,7 @@ type Layaway = {
   balance: number;
   customer: string;
   phone: string | null;
+  email: string | null;
   items: LayawayItem[];
   payments: Payment[];
 };
@@ -63,7 +66,7 @@ const statusLabel = (status: string) =>
       ? "Liquidado"
       : "Cancelado";
 
-export function LayawaysPage({ session }: { session: AuthSession }) {
+export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSession; allowNegativeStock: boolean }) {
   const [layaways, setLayaways] = useState<Layaway[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [products, setProducts] = useState<ApiProduct[]>([]),
@@ -137,7 +140,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
     ? products
         .filter(
           (x) =>
-            x.stock > 0 &&
+            (allowNegativeStock || x.stock > 0) &&
             normalize(
               `${x.name} ${x.variant} ${x.sku} ${x.barcode ?? ""}`,
             ).includes(normalize(productQuery)),
@@ -150,7 +153,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
       current.some((x) => x.product.variantId === product.variantId)
         ? current.map((x) =>
             x.product.variantId === product.variantId
-              ? { ...x, quantity: Math.min(x.quantity + 1, x.product.stock) }
+              ? { ...x, quantity: allowNegativeStock ? x.quantity + 1 : Math.min(x.quantity + 1, x.product.stock) }
               : x,
           )
         : [...current, { product, quantity: 1 }],
@@ -334,6 +337,26 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
       "noopener,noreferrer",
     );
   }
+  async function emailReminder(x: Layaway) {
+    const date = new Date(x.dueAtUtc).toLocaleDateString("es-MX");
+    const content = `Hola ${x.customer},\n\nTe recordamos que tu apartado ${x.folio} tiene un saldo de ${money.format(x.balance)} y vence el ${date}.\n\n¡Gracias!`;
+    try {
+      if (await emailDocument({ session, documentType: "layaway-reminder", reference: x.folio, content, defaultEmail: x.email }))
+        setSuccess("Recordatorio enviado por correo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos enviar el recordatorio por correo.");
+    }
+  }
+  async function emailReceipt(data: { layaway: Layaway; title: string; amount: number }) {
+    const items = data.layaway.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
+    const content = `Cliente: ${data.layaway.customer}\nVencimiento: ${new Date(data.layaway.dueAtUtc).toLocaleDateString("es-MX")}\n\n${items}\n\nRecibido: ${money.format(data.amount)}\nPagado acumulado: ${money.format(data.layaway.paid)}\nSALDO: ${money.format(data.layaway.balance)}\n\nConserva este correo como comprobante.`;
+    try {
+      if (await emailDocument({ session, documentType: "layaway-receipt", reference: data.layaway.folio, content, defaultEmail: data.layaway.email }))
+        setSuccess("Comprobante enviado por correo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No pudimos enviar el comprobante por correo.");
+    }
+  }
   return (
     <div className="content layaways-page">
       <section className="page-title-row">
@@ -465,6 +488,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
                     <MessageCircle />
                   </button>
                 )}
+                {x.status === "Active" && <button title="Enviar recordatorio por email" onClick={() => void emailReminder(x)}><Mail /></button>}
                 <button onClick={() => setDetail(x)}>Ver</button>
               </span>
             </div>
@@ -570,7 +594,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
                   <input
                     type="number"
                     min="1"
-                    max={x.product.stock}
+                    max={allowNegativeStock ? undefined : x.product.stock}
                     value={x.quantity}
                     onChange={(e) =>
                       setCart((v) =>
@@ -780,6 +804,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
                   Recordar
                 </button>
               )}
+              {detail.status === "Active" && <button className="button secondary" onClick={() => void emailReminder(detail)}><Mail />Email</button>}
               {detail.status === "Active" && (
                 <button
                   className="button danger"
@@ -794,7 +819,7 @@ export function LayawaysPage({ session }: { session: AuthSession }) {
           </div>
         </div>
       )}
-      {receipt && <div className="modal-layer"><div className="receipt-modal"><button className="close-form" onClick={() => setReceipt(null)}><X /></button><div className="receipt" id="layaway-receipt"><h2>{receipt.title}</h2><p>{receipt.layaway.folio}<br />{receipt.layaway.customer}<br />Vence: {new Date(receipt.layaway.dueAtUtc).toLocaleDateString("es-MX")}</p>{receipt.layaway.items.map((x) => <div className="ticket-line" key={x.id}><span>{x.quantity} × {x.productName}<small>{x.variantName} · {x.sku}</small></span><b>{money.format(x.lineTotal)}</b></div>)}<div className="ticket-payment"><span>Recibido</span><b>{money.format(receipt.amount)}</b><span>Pagado acumulado</span><b>{money.format(receipt.layaway.paid)}</b></div><div className="ticket-total"><span>SALDO</span><b>{money.format(receipt.layaway.balance)}</b></div><footer>Conserva este comprobante</footer></div><div className="layaway-receipt-actions"><button className="button primary" onClick={() => printReceipt(document.getElementById("layaway-receipt"))}><Printer />Imprimir</button><button className="button secondary" disabled={!receipt.layaway.phone} onClick={() => shareReceipt(receipt)}><MessageCircle />WhatsApp</button></div></div></div>}
+      {receipt && <div className="modal-layer"><div className="receipt-modal"><button className="close-form" onClick={() => setReceipt(null)}><X /></button><div className="receipt" id="layaway-receipt"><h2>{receipt.title}</h2><p>{receipt.layaway.folio}<br />{receipt.layaway.customer}<br />Vence: {new Date(receipt.layaway.dueAtUtc).toLocaleDateString("es-MX")}</p>{receipt.layaway.items.map((x) => <div className="ticket-line" key={x.id}><span>{x.quantity} × {x.productName}<small>{x.variantName} · {x.sku}</small></span><b>{money.format(x.lineTotal)}</b></div>)}<div className="ticket-payment"><span>Recibido</span><b>{money.format(receipt.amount)}</b><span>Pagado acumulado</span><b>{money.format(receipt.layaway.paid)}</b></div><div className="ticket-total"><span>SALDO</span><b>{money.format(receipt.layaway.balance)}</b></div><footer>Conserva este comprobante</footer></div><div className="layaway-receipt-actions"><button className="button primary" onClick={() => printReceipt(document.getElementById("layaway-receipt"))}><Printer />Imprimir</button><button className="button secondary" disabled={!receipt.layaway.phone} onClick={() => shareReceipt(receipt)}><MessageCircle />WhatsApp</button><button className="button secondary" onClick={() => void emailReceipt(receipt)}><Mail />Email</button></div></div></div>}
       {confirmCancel && detail && <div className="modal-layer confirmation-layer"><div className="confirmation-modal"><div className="confirmation-icon danger"><XCircle /></div><h2>¿Cancelar apartado?</h2><p>La mercancía regresará al inventario. Los pagos recibidos no se devolverán automáticamente.</p><div className="confirmation-actions"><button className="button secondary" onClick={() => setConfirmCancel(false)}>Conservar</button><button className="button danger" disabled={busy} onClick={() => void cancelLayaway()}>Sí, cancelar</button></div></div></div>}
     </div>
   );

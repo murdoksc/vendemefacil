@@ -28,8 +28,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
-builder.Services.AddSingleton<PasswordResetEmailQueue>();
-builder.Services.AddHostedService<PasswordResetEmailWorker>();
+builder.Services.AddSingleton<OutboundEmailQueue>();
+builder.Services.AddHostedService<OutboundEmailWorker>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -75,6 +75,17 @@ builder.Services.AddRateLimiter(options =>
         factory: _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+    options.AddPolicy("document-email", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
             Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0,
             AutoReplenishment = true
@@ -188,7 +199,7 @@ auth.MapPost("/login", async (
 
 auth.MapPost("/forgot-password", async (
     ForgotPasswordRequest request,
-    PasswordResetEmailQueue emailQueue,
+    OutboundEmailQueue emailQueue,
     IConfiguration configuration,
     VendemeFacilDbContext db,
     CancellationToken cancellationToken) =>
@@ -226,7 +237,7 @@ auth.MapPost("/forgot-password", async (
         await db.SaveChangesAsync(cancellationToken);
 
         var frontendBaseUrl = (configuration["Email:FrontendBaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
-        emailQueue.TryQueue(new PasswordResetEmail(
+        emailQueue.TryQueue(OutboundEmailFactory.PasswordReset(
             user.Email,
             user.DisplayName,
             tenant.Name,
@@ -306,6 +317,38 @@ api.AddEndpointFilter(async (context, next) =>
             statusCode: StatusCodes.Status400BadRequest);
 });
 
+api.MapPost("/documents/email", async (
+    SendDocumentEmailRequest request,
+    ITenantContext tenantContext,
+    OutboundEmailQueue emailQueue,
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sale-ticket"] = "Ticket de venta",
+        ["layaway-receipt"] = "Comprobante de apartado",
+        ["layaway-reminder"] = "Recordatorio de apartado",
+        ["cash-report"] = "Corte de caja"
+    };
+    var email = (request.Email ?? string.Empty).Trim().ToLowerInvariant();
+    var reference = (request.Reference ?? string.Empty).Trim();
+    var content = (request.Content ?? string.Empty).Trim();
+    if (!labels.TryGetValue(request.DocumentType ?? string.Empty, out var label)
+        || !System.Net.Mail.MailAddress.TryCreate(email, out _)
+        || reference.Length is < 1 or > 100
+        || content.Length is < 1 or > 20000)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["document"] = ["Revisa el correo y el contenido del documento."] });
+
+    var businessName = await db.Tenants.AsNoTracking()
+        .Where(x => x.Id == tenantContext.TenantId)
+        .Select(x => x.Name)
+        .SingleAsync(cancellationToken);
+    if (!emailQueue.TryQueue(OutboundEmailFactory.Document(email, businessName, label, reference, content)))
+        return Results.Problem(title: "No pudimos preparar el correo.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    return Results.Accepted(value: new { message = $"{label} enviado a {email}." });
+}).RequireRateLimiting("document-email");
+
 var userAdmin = api.MapGroup("/users").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
 userAdmin.MapGet("/", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
     Results.Ok(await db.Users.AsNoTracking().OrderBy(x => x.DisplayName).Select(x => new { x.Id, x.DisplayName, x.Email, Role = x.Role.ToString(), x.CanViewCosts, x.IsActive }).ToListAsync(cancellationToken)));
@@ -354,7 +397,7 @@ api.MapPut("/customers/{customerId:guid}", async (Guid customerId, SaveCustomerR
 api.MapGet("/business/settings", async (ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     var tenant = await db.Tenants.AsNoTracking().SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
-    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
+    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
 });
 
 api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
@@ -363,7 +406,7 @@ api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, I
     if (string.IsNullOrWhiteSpace(request.Name) || colors.Any(color => !Regex.IsMatch(color ?? "", "^#[0-9a-fA-F]{6}$")) || request.CornerRadius is < 0 or > 24 || request.LayawayReminderDaysBefore is < 0 or > 30)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["settings"] = ["Revisa el nombre y los colores seleccionados."] });
     var tenant = await db.Tenants.SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
-    tenant.Name = request.Name.Trim(); tenant.PrimaryColor = request.PrimaryColor; tenant.AccentColor = request.AccentColor; tenant.ButtonColor = request.ButtonColor; tenant.HoverColor = request.HoverColor; tenant.BackgroundColor = request.BackgroundColor; tenant.SurfaceColor = request.SurfaceColor; tenant.TextColor = request.TextColor; tenant.CornerRadius = request.CornerRadius; tenant.LayawayReminderDaysBefore = request.LayawayReminderDaysBefore;
+    tenant.Name = request.Name.Trim(); tenant.PrimaryColor = request.PrimaryColor; tenant.AccentColor = request.AccentColor; tenant.ButtonColor = request.ButtonColor; tenant.HoverColor = request.HoverColor; tenant.BackgroundColor = request.BackgroundColor; tenant.SurfaceColor = request.SurfaceColor; tenant.TextColor = request.TextColor; tenant.CornerRadius = request.CornerRadius; tenant.LayawayReminderDaysBefore = request.LayawayReminderDaysBefore; tenant.AllowNegativeStock = request.AllowNegativeStock;
     var logoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim();
     if (logoUrl is not null && (logoUrl.Length > 2048 || !Uri.TryCreate(logoUrl, UriKind.Absolute, out var logoUri) || (logoUri.Scheme != Uri.UriSchemeHttp && logoUri.Scheme != Uri.UriSchemeHttps)))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["logoUrl"] = ["La URL del logotipo debe ser una dirección HTTP o HTTPS válida de hasta 2,048 caracteres."] });
@@ -372,7 +415,7 @@ api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, I
     tenant.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
     tenant.TicketMessage = string.IsNullOrWhiteSpace(request.TicketMessage) ? null : request.TicketMessage.Trim();
     await db.SaveChangesAsync(cancellationToken);
-    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
+    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
 });
 
 var inventoryAdmin = api.MapGroup("/inventory").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
@@ -488,11 +531,22 @@ api.MapPost("/sales", async (CreateSaleRequest request, HttpContext context, ITe
     var variantIds = request.Items.Select(x => x.ProductVariantId).Distinct().ToList();
     var variants = await db.ProductVariants.Include(x => x.Product).Where(x => variantIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
     var balances = await db.InventoryBalances.Where(x => x.BranchId == request.BranchId && variantIds.Contains(x.ProductVariantId)).ToDictionaryAsync(x => x.ProductVariantId, cancellationToken);
+    var allowNegativeStock = await db.Tenants.Where(x => x.Id == tenant.TenantId).Select(x => x.AllowNegativeStock).SingleAsync(cancellationToken);
     if (request.CustomerId.HasValue && !await db.Customers.AnyAsync(x => x.Id == request.CustomerId.Value && x.IsActive, cancellationToken)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["customerId"] = ["El cliente seleccionado ya no está disponible."] });
     var sale = new Sale { Folio = $"V-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", BranchId = request.BranchId, CashSessionId = cash.Id, SoldByUserId = userId, CustomerId = request.CustomerId };
     foreach (var line in request.Items)
     {
-        if (!variants.TryGetValue(line.ProductVariantId, out var variant) || !balances.TryGetValue(line.ProductVariantId, out var balance) || balance.Quantity < line.Quantity)
+        if (!variants.TryGetValue(line.ProductVariantId, out var variant))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["stock"] = ["Uno de los productos ya no tiene existencia suficiente."] });
+        if (!balances.TryGetValue(line.ProductVariantId, out var balance))
+        {
+            if (!allowNegativeStock)
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["stock"] = ["Uno de los productos ya no tiene existencia suficiente."] });
+            balance = new InventoryBalance { BranchId = request.BranchId, ProductVariantId = variant.Id, AverageCost = variant.Cost };
+            balances[variant.Id] = balance;
+            db.InventoryBalances.Add(balance);
+        }
+        if (!allowNegativeStock && balance.Quantity < line.Quantity)
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["stock"] = ["Uno de los productos ya no tiene existencia suficiente."] });
         var total = decimal.Round(variant.Price * line.Quantity, 2);
         sale.Items.Add(new SaleItem { ProductVariantId = variant.Id, ProductName = variant.Product.Name, VariantName = variant.Name, Sku = variant.Sku, Quantity = line.Quantity, UnitPrice = variant.Price, UnitCost = balance.AverageCost, LineTotal = total });
@@ -522,7 +576,7 @@ api.MapGet("/sales", async (VendemeFacilDbContext db, CancellationToken cancella
 
 api.MapGet("/sales/{saleId:guid}", async (Guid saleId, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
-    var sale = await db.Sales.AsNoTracking().Where(x => x.Id == saleId).Select(x => new { x.Id, x.Folio, x.SoldAtUtc, Status = x.Status.ToString(), x.Subtotal, x.Discount, x.Total, x.CancellationReason, Customer = x.Customer != null ? x.Customer.Name : "Público general", CustomerPhone = x.Customer != null ? x.Customer.Phone : null, Items = x.Items.Select(i => new { i.Id, i.ProductVariantId, i.ProductName, i.VariantName, i.Sku, i.Quantity, i.ReturnedQuantity, AvailableToReturn = i.Quantity - i.ReturnedQuantity, i.UnitPrice, i.LineTotal }), Payments = x.Payments.Select(p => new { Method = p.Method.ToString(), p.Amount, p.ReceivedAmount, p.ChangeAmount }) }).SingleOrDefaultAsync(cancellationToken);
+    var sale = await db.Sales.AsNoTracking().Where(x => x.Id == saleId).Select(x => new { x.Id, x.Folio, x.SoldAtUtc, Status = x.Status.ToString(), x.Subtotal, x.Discount, x.Total, x.CancellationReason, Customer = x.Customer != null ? x.Customer.Name : "Público general", CustomerPhone = x.Customer != null ? x.Customer.Phone : null, CustomerEmail = x.Customer != null ? x.Customer.Email : null, Items = x.Items.Select(i => new { i.Id, i.ProductVariantId, i.ProductName, i.VariantName, i.Sku, i.Quantity, i.ReturnedQuantity, AvailableToReturn = i.Quantity - i.ReturnedQuantity, i.UnitPrice, i.LineTotal }), Payments = x.Payments.Select(p => new { Method = p.Method.ToString(), p.Amount, p.ReceivedAmount, p.ChangeAmount }) }).SingleOrDefaultAsync(cancellationToken);
     return sale is null ? Results.NotFound() : Results.Ok(sale);
 });
 
@@ -828,18 +882,29 @@ inventoryAdmin.MapPost("/adjustment", async (InventoryAdjustmentRequest request,
 {
     if (request.QuantityChange == 0 || string.IsNullOrWhiteSpace(request.Reason))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["adjustment"] = ["Indica una cantidad distinta de cero y el motivo del ajuste."] });
-    var variant = await db.ProductVariants.SingleOrDefaultAsync(x => x.Id == request.ProductVariantId, cancellationToken);
-    if (variant is null) return Results.NotFound();
-    await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-    var balance = await db.InventoryBalances.SingleOrDefaultAsync(x => x.BranchId == request.BranchId && x.ProductVariantId == request.ProductVariantId, cancellationToken);
-    if (balance is null) { balance = new InventoryBalance { BranchId = request.BranchId, ProductVariantId = request.ProductVariantId, AverageCost = variant.Cost }; db.InventoryBalances.Add(balance); }
-    if (balance.Quantity + request.QuantityChange < 0)
-        return Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityChange"] = ["El ajuste dejaría el inventario en negativo."] });
-    balance.Quantity += request.QuantityChange;
     var userId = Guid.Parse(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")!);
-    db.InventoryMovements.Add(new InventoryMovement { BranchId = request.BranchId, ProductVariantId = request.ProductVariantId, Type = InventoryMovementType.Adjustment, Quantity = request.QuantityChange, UnitCost = balance.AverageCost, Note = request.Reason.Trim(), PerformedByUserId = userId });
-    await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
-    return Results.Ok(new { balance.Quantity });
+    IResult result = Results.NotFound();
+    var strategy = db.Database.CreateExecutionStrategy();
+    await strategy.ExecuteAsync(async () =>
+    {
+        db.ChangeTracker.Clear();
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var variant = await db.ProductVariants.SingleOrDefaultAsync(x => x.Id == request.ProductVariantId, cancellationToken);
+        if (variant is null) return;
+        var balance = await db.InventoryBalances.SingleOrDefaultAsync(x => x.BranchId == request.BranchId && x.ProductVariantId == request.ProductVariantId, cancellationToken);
+        if (balance is null) { balance = new InventoryBalance { BranchId = request.BranchId, ProductVariantId = request.ProductVariantId, AverageCost = variant.Cost }; db.InventoryBalances.Add(balance); }
+        if (balance.Quantity + request.QuantityChange < 0)
+        {
+            result = Results.ValidationProblem(new Dictionary<string, string[]> { ["quantityChange"] = ["El ajuste dejaría el inventario en negativo."] });
+            return;
+        }
+        balance.Quantity += request.QuantityChange;
+        db.InventoryMovements.Add(new InventoryMovement { BranchId = request.BranchId, ProductVariantId = request.ProductVariantId, Type = InventoryMovementType.Adjustment, Quantity = request.QuantityChange, UnitCost = balance.AverageCost, Note = request.Reason.Trim(), PerformedByUserId = userId });
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        result = Results.Ok(new { balance.Quantity });
+    });
+    return result;
 });
 
 inventoryAdmin.MapPost("/quick-entry", async (
@@ -899,7 +964,7 @@ api.MapGet("/layaways", async (string? status, string? query, VendemeFacilDbCont
     var rows = await source.OrderByDescending(x => x.OpenedAtUtc).Take(250).Select(x => new
     {
         x.Id, x.Folio, x.OpenedAtUtc, x.DueAtUtc, Status = x.Status.ToString(), x.Total, Paid = x.Payments.Sum(p => (decimal?)p.Amount) ?? 0,
-        Balance = x.Total - (x.Payments.Sum(p => (decimal?)p.Amount) ?? 0), Customer = x.Customer.Name, x.Customer.Phone,
+        Balance = x.Total - (x.Payments.Sum(p => (decimal?)p.Amount) ?? 0), Customer = x.Customer.Name, x.Customer.Phone, x.Customer.Email,
         Items = x.Items.Select(i => new { i.Id, i.ProductVariantId, i.ProductName, i.VariantName, i.Sku, i.Quantity, i.UnitPrice, i.LineTotal }),
         Payments = x.Payments.OrderByDescending(p => p.PaidAtUtc).Select(p => new { p.Id, p.Amount, Method = p.Method.ToString(), p.PaidAtUtc, p.Note })
     }).ToListAsync(cancellationToken);
@@ -913,10 +978,10 @@ api.MapGet("/layaways/reminders", async (HttpContext context, ITenantContext ten
     var today = ClientTimeZone.Today(zone);
     var limit = ClientTimeZone.StartOfDayUtc(today.AddDays(reminderDays + 1), zone);
     return Results.Ok(await db.Layaways.AsNoTracking().Where(x => x.Status == LayawayStatus.Active && x.DueAtUtc < limit)
-        .OrderBy(x => x.DueAtUtc).Select(x => new { x.Id, x.Folio, x.DueAtUtc, Customer = x.Customer.Name, x.Customer.Phone, Balance = x.Total - (x.Payments.Sum(p => (decimal?)p.Amount) ?? 0), IsOverdue = x.DueAtUtc < DateTimeOffset.UtcNow }).ToListAsync(cancellationToken));
+        .OrderBy(x => x.DueAtUtc).Select(x => new { x.Id, x.Folio, x.DueAtUtc, Customer = x.Customer.Name, x.Customer.Phone, x.Customer.Email, Balance = x.Total - (x.Payments.Sum(p => (decimal?)p.Amount) ?? 0), IsOverdue = x.DueAtUtc < DateTimeOffset.UtcNow }).ToListAsync(cancellationToken));
 });
 
-api.MapPost("/layaways", async (CreateLayawayRequest request, HttpContext context, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+api.MapPost("/layaways", async (CreateLayawayRequest request, HttpContext context, ITenantContext tenant, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     if (request.Items.Count == 0 || request.Items.Any(x => x.Quantity <= 0)) return Results.BadRequest(new { title = "Agrega al menos un producto con cantidad válida." });
     if (request.TermDays is < 1 or > 90) return Results.BadRequest(new { title = "El plazo debe estar entre 1 y 90 días." });
@@ -926,13 +991,22 @@ api.MapPost("/layaways", async (CreateLayawayRequest request, HttpContext contex
     if (ids.Count != request.Items.Count) return Results.BadRequest(new { title = "No repitas productos dentro del apartado." });
     var variants = await db.ProductVariants.Include(x => x.Product).Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
     var balances = await db.InventoryBalances.Where(x => x.BranchId == request.BranchId && ids.Contains(x.ProductVariantId)).ToDictionaryAsync(x => x.ProductVariantId, cancellationToken);
+    var allowNegativeStock = await db.Tenants.Where(x => x.Id == tenant.TenantId).Select(x => x.AllowNegativeStock).SingleAsync(cancellationToken);
     var userId = Guid.Parse(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")!);
     var cash = await db.CashSessions.SingleOrDefaultAsync(x => x.OpenedByUserId == userId && x.BranchId == request.BranchId && x.Status == CashSessionStatus.Open, cancellationToken);
     if (cash is null) return Results.ValidationProblem(new Dictionary<string, string[]> { ["cashSession"] = ["Abre tu caja antes de crear un apartado."] });
     var layaway = new Layaway { Folio = $"A-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}", BranchId = request.BranchId, CustomerId = request.CustomerId, CreatedByUserId = userId, DueAtUtc = DateTimeOffset.UtcNow.AddDays(request.TermDays), Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim() };
     foreach (var line in request.Items)
     {
-        if (!variants.TryGetValue(line.ProductVariantId, out var variant) || !balances.TryGetValue(line.ProductVariantId, out var balance) || balance.Quantity < line.Quantity) return Results.BadRequest(new { title = "Uno de los productos no tiene existencia suficiente." });
+        if (!variants.TryGetValue(line.ProductVariantId, out var variant)) return Results.BadRequest(new { title = "Uno de los productos no está disponible." });
+        if (!balances.TryGetValue(line.ProductVariantId, out var balance))
+        {
+            if (!allowNegativeStock) return Results.BadRequest(new { title = "Uno de los productos no tiene existencia suficiente." });
+            balance = new InventoryBalance { BranchId = request.BranchId, ProductVariantId = variant.Id, AverageCost = variant.Cost };
+            balances[variant.Id] = balance;
+            db.InventoryBalances.Add(balance);
+        }
+        if (!allowNegativeStock && balance.Quantity < line.Quantity) return Results.BadRequest(new { title = "Uno de los productos no tiene existencia suficiente." });
         var total = decimal.Round(variant.Price * line.Quantity, 2); layaway.Total += total; balance.Quantity -= line.Quantity;
         layaway.Items.Add(new LayawayItem { ProductVariantId = variant.Id, ProductName = variant.Product.Name, VariantName = variant.Name, Sku = variant.Sku, Quantity = line.Quantity, UnitPrice = variant.Price, LineTotal = total });
         db.InventoryMovements.Add(new InventoryMovement { BranchId = request.BranchId, ProductVariantId = variant.Id, Type = InventoryMovementType.Layaway, Quantity = -line.Quantity, UnitCost = balance.AverageCost, Note = layaway.Folio, PerformedByUserId = userId });

@@ -16,6 +16,7 @@ public sealed class Tenant : Entity
     public string TextColor { get; set; } = "#17251f";
     public int CornerRadius { get; set; } = 12;
     public int LayawayReminderDaysBefore { get; set; } = 3;
+    public bool AllowNegativeStock { get; set; }
     public string? LogoUrl { get; set; }
     public string? Phone { get; set; }
     public string? Address { get; set; }

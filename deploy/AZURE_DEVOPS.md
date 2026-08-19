@@ -106,3 +106,9 @@ Para validar, abre **¿Olvidaste tu contraseña?**, escribe el identificador del
 negocio y el correo de un usuario existente y comprueba que llegue el enlace. El
 enlace vence en 30 minutos, funciona una sola vez y cambiar la contraseña invalida
 las sesiones anteriores de ese usuario.
+
+La misma configuración permite enviar tickets de venta, comprobantes y
+recordatorios de apartados y cortes de caja. La aplicación sugiere el correo del
+cliente cuando existe y permite capturar otro destinatario antes de enviarlo. Estos
+envíos están autenticados, limitados a 20 por usuario cada 15 minutos y solo admiten
+los tipos de documento definidos por la API.

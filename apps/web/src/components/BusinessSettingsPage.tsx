@@ -4,6 +4,7 @@ import {
   LayoutTemplate,
   Palette,
   Printer,
+  PackageMinus,
   RefreshCw,
   Save,
   Store,
@@ -31,6 +32,7 @@ export type BusinessSettings = {
   textColor: string;
   cornerRadius: number;
   layawayReminderDaysBefore: number;
+  allowNegativeStock: boolean;
   logoUrl: string | null;
   operationMode: string;
   phone: string | null;
@@ -330,6 +332,19 @@ export function BusinessSettingsPage({
                 />
               </label>
             </div>
+          </section>
+          <section className="card settings-section">
+            <div className="settings-section-title">
+              <span><PackageMinus /></span>
+              <div>
+                <h2>Control de existencias</h2>
+                <p>Define qué sucede cuando un producto llega a cero.</p>
+              </div>
+            </div>
+            <label className="negative-stock-setting">
+              <input type="checkbox" checked={settings.allowNegativeStock} onChange={(event) => change({ allowNegativeStock: event.target.checked })} />
+              <span><strong>Permitir ventas y apartados sin existencia</strong><small>El inventario podrá quedar en negativo hasta que registres una entrada o ajuste.</small></span>
+            </label>
           </section>
           <section className="card settings-section printer-settings">
             <div className="settings-section-title">
