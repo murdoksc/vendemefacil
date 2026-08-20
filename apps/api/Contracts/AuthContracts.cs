@@ -4,6 +4,16 @@ public sealed record RegisterBusinessRequest(string BusinessName, string OwnerNa
 public sealed record LoginRequest(string BusinessSlug, string Email, string Password);
 public sealed record ForgotPasswordRequest(string BusinessSlug, string Email);
 public sealed record ResetPasswordRequest(string Token, string NewPassword, string ConfirmPassword);
+public sealed record CreateProspectLeadRequest(
+    string ContactName,
+    string BusinessName,
+    string Phone,
+    string? Email,
+    string? City,
+    string? BusinessType,
+    string? PreferredContactTime,
+    string? Notes,
+    string? Website);
 public sealed record AuthResponse(string AccessToken, DateTimeOffset ExpiresAtUtc, UserSession User);
 public sealed record UserSession(Guid Id, Guid TenantId, string BusinessName, string BusinessSlug, string DisplayName, string Email, string Role, bool CanViewCosts);
 public sealed record CreateUserRequest(string DisplayName, string Email, string Password, string Role, bool CanViewCosts);

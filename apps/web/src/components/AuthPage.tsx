@@ -1,4 +1,4 @@
-import { Check, Eye, EyeOff, LockKeyhole, Mail, Store } from "lucide-react";
+import { ArrowLeft, Check, Eye, EyeOff, LockKeyhole, Mail, Store } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { apiRequest, AuthSession, saveSession } from "../lib/api";
 
@@ -10,9 +10,9 @@ function resetTokenFromLocation() {
   return params.get("token") ?? "";
 }
 
-export function AuthPage({ onAuthenticated }: { onAuthenticated: (session: AuthSession) => void }) {
+export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { onAuthenticated: (session: AuthSession) => void; initialMode?: "login" | "register"; onBack?: () => void }) {
   const [resetToken] = useState(resetTokenFromLocation);
-  const [mode, setMode] = useState<AuthMode>(() => resetTokenFromLocation() ? "reset" : "login");
+  const [mode, setMode] = useState<AuthMode>(() => resetTokenFromLocation() ? "reset" : initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -91,6 +91,7 @@ export function AuthPage({ onAuthenticated }: { onAuthenticated: (session: AuthS
       <div className="auth-benefits"><span><Check />Configuración rápida</span><span><Check />Funciona en cualquier dispositivo</span><span><Check />Tus datos siempre separados y seguros</span></div>
     </section>
     <section className="auth-form-panel">
+      {onBack && <button className="demo-back" onClick={onBack}><ArrowLeft /> Volver al inicio</button>}
       <form className="auth-form" onSubmit={mode === "forgot" ? requestReset : mode === "reset" ? resetPassword : submitAccess}>
         <p className="eyebrow">{mode === "forgot" || mode === "reset" ? "RECUPERACIÓN SEGURA" : mode === "register" ? "EMPECEMOS" : "BIENVENIDO DE NUEVO"}</p>
         <h2>{title}</h2>

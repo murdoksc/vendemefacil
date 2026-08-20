@@ -1,4 +1,5 @@
 import qz from "qz-tray";
+import { apiRequest, loadSession } from "./api";
 
 export type LocalPrintSettings = {
   mode: "browser" | "qz";
@@ -16,6 +17,35 @@ const defaults: LocalPrintSettings = {
   copies: 1,
   autoPrint: false,
 };
+let qzSecurityConfiguration: Promise<boolean> | null = null;
+
+function configureQzSecurity() {
+  if (qzSecurityConfiguration) return qzSecurityConfiguration;
+  qzSecurityConfiguration = fetch("/api/qz/certificate")
+    .then(async (response) => {
+      if (!response.ok) return false;
+      const certificate = await response.text();
+      qz.security.setSignatureAlgorithm("SHA512");
+      qz.security.setCertificatePromise((resolve: (value: string) => void) => resolve(certificate));
+      qz.security.setSignaturePromise((request: string) => (
+        resolve: (signature: string) => void,
+        reject: (reason: unknown) => void,
+      ) => {
+        const session = loadSession();
+        if (!session) {
+          reject(new Error("Inicia sesion para imprimir."));
+          return;
+        }
+        apiRequest<{ signature: string }>("/api/v1/qz/sign", {
+          method: "POST",
+          body: JSON.stringify({ request }),
+        }, session).then(({ signature }) => resolve(signature), reject);
+      });
+      return true;
+    })
+    .catch(() => false);
+  return qzSecurityConfiguration;
+}
 
 export function loadPrintSettings(): LocalPrintSettings {
   try {
@@ -34,6 +64,7 @@ export function isQzConnected() {
 }
 
 export async function connectQz() {
+  await configureQzSecurity();
   if (!qz.websocket.isActive()) {
     await qz.websocket.connect({ retries: 2, delay: 1 });
   }

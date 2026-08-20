@@ -79,6 +79,15 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
             AutoReplenishment = true
         }));
+    options.AddPolicy("public-leads", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromHours(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
     options.AddPolicy("document-email", context => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: context.User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? context.Connection.RemoteIpAddress?.ToString()
@@ -87,6 +96,17 @@ builder.Services.AddRateLimiter(options =>
         {
             PermitLimit = 20,
             Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+    options.AddPolicy("qz-signing", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
+            Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
             AutoReplenishment = true
         }));
@@ -135,7 +155,60 @@ app.MapGet("/api/health/database", async (VendemeFacilDbContext db, Cancellation
         ? Results.Ok(new { status = "healthy", database = "connected" })
         : Results.Problem(title: "Database unavailable", statusCode: StatusCodes.Status503ServiceUnavailable));
 
+app.MapGet("/api/qz/certificate", (IConfiguration configuration) =>
+{
+    var encodedCertificate = configuration["Qz:CertificateBase64"]?.Trim();
+    if (string.IsNullOrWhiteSpace(encodedCertificate))
+        return Results.NotFound();
+
+    try
+    {
+        var certificate = Encoding.UTF8.GetString(Convert.FromBase64String(encodedCertificate));
+        return Results.Text(certificate, "text/plain", Encoding.UTF8);
+    }
+    catch (FormatException)
+    {
+        return Results.Problem(title: "El certificado QZ no tiene un formato valido.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
 var auth = app.MapGroup("/api/auth");
+
+app.MapPost("/api/public/leads", async (
+    CreateProspectLeadRequest request,
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    // Campo trampa: los visitantes reales nunca lo llenan.
+    if (!string.IsNullOrWhiteSpace(request.Website))
+        return Results.Accepted(value: new { message = "Gracias. Recibimos tus datos." });
+
+    var errors = new Dictionary<string, string[]>();
+    var contactName = (request.ContactName ?? string.Empty).Trim();
+    var businessName = (request.BusinessName ?? string.Empty).Trim();
+    var phone = (request.Phone ?? string.Empty).Trim();
+    var email = request.Email?.Trim().ToLowerInvariant();
+    if (contactName.Length is < 2 or > 120) errors["contactName"] = ["Escribe tu nombre."];
+    if (businessName.Length is < 2 or > 160) errors["businessName"] = ["Escribe el nombre de tu negocio."];
+    if (phone.Length is < 7 or > 30) errors["phone"] = ["Escribe un telefono valido."];
+    if (!string.IsNullOrWhiteSpace(email) && !System.Net.Mail.MailAddress.TryCreate(email, out _))
+        errors["email"] = ["Escribe un correo valido."];
+    if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+    db.ProspectLeads.Add(new ProspectLead
+    {
+        ContactName = contactName,
+        BusinessName = businessName,
+        Phone = phone,
+        Email = string.IsNullOrWhiteSpace(email) ? null : email,
+        City = request.City?.Trim(),
+        BusinessType = request.BusinessType?.Trim(),
+        PreferredContactTime = request.PreferredContactTime?.Trim(),
+        Notes = request.Notes?.Trim()
+    });
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created("/api/public/leads", new { message = "Gracias. Te contactaremos muy pronto." });
+}).RequireRateLimiting("public-leads");
 
 auth.MapPost("/register", async (
     RegisterBusinessRequest request,
@@ -348,6 +421,32 @@ api.MapPost("/documents/email", async (
         return Results.Problem(title: "No pudimos preparar el correo.", statusCode: StatusCodes.Status503ServiceUnavailable);
     return Results.Accepted(value: new { message = $"{label} enviado a {email}." });
 }).RequireRateLimiting("document-email");
+
+api.MapPost("/qz/sign", (QzSignRequest request, IConfiguration configuration) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Request) || request.Request.Length > 100_000)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["request"] = ["La solicitud de impresion no es valida."] });
+
+    var encodedPrivateKey = configuration["Qz:PrivateKeyBase64"]?.Trim();
+    if (string.IsNullOrWhiteSpace(encodedPrivateKey))
+        return Results.Problem(title: "La firma QZ no esta configurada.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    try
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportPkcs8PrivateKey(Convert.FromBase64String(encodedPrivateKey), out _);
+        var signature = rsa.SignData(Encoding.UTF8.GetBytes(request.Request), HashAlgorithmName.SHA512, RSASignaturePadding.Pkcs1);
+        return Results.Ok(new { signature = Convert.ToBase64String(signature) });
+    }
+    catch (CryptographicException)
+    {
+        return Results.Problem(title: "La llave de firma QZ no es valida.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (FormatException)
+    {
+        return Results.Problem(title: "La llave de firma QZ no tiene un formato valido.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+}).RequireRateLimiting("qz-signing");
 
 var userAdmin = api.MapGroup("/users").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
 userAdmin.MapGet("/", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>

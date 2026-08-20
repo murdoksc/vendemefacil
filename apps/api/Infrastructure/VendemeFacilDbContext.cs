@@ -11,6 +11,7 @@ public sealed class VendemeFacilDbContext(
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<ProspectLead> ProspectLeads => Set<ProspectLead>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
@@ -74,6 +75,19 @@ public sealed class VendemeFacilDbContext(
                 .HasForeignKey(x => new { x.TenantId, x.UserId })
                 .HasPrincipalKey(x => new { x.TenantId, x.Id })
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<ProspectLead>(entity =>
+        {
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.Property(x => x.ContactName).HasMaxLength(120);
+            entity.Property(x => x.BusinessName).HasMaxLength(160);
+            entity.Property(x => x.Phone).HasMaxLength(30);
+            entity.Property(x => x.Email).HasMaxLength(200);
+            entity.Property(x => x.City).HasMaxLength(120);
+            entity.Property(x => x.BusinessType).HasMaxLength(100);
+            entity.Property(x => x.PreferredContactTime).HasMaxLength(80);
+            entity.Property(x => x.Notes).HasMaxLength(1000);
+            entity.Property(x => x.Status).HasMaxLength(30);
         });
         modelBuilder.Entity<Customer>().HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Category>()

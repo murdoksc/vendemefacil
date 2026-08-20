@@ -37,6 +37,8 @@ import { ReportsPage } from "./components/ReportsPage";
 import { UsersPage } from "./components/UsersPage";
 import { CustomersPage } from "./components/CustomersPage";
 import { LayawaysPage } from "./components/LayawaysPage";
+import { LandingPage } from "./components/LandingPage";
+import { PrintingSetupPage } from "./components/PrintingSetupPage";
 import { apiRequest, AuthSession, clearSession, loadSession } from "./lib/api";
 import { emailDocument } from "./lib/emailDocument";
 
@@ -90,6 +92,8 @@ function applyTheme(settings: BusinessSettings) {
 }
 
 function App() {
+  const [publicPath, setPublicPath] = useState(() => window.location.pathname);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePage, setActivePage] = useState("Inicio");
   const [productCreateRequest, setProductCreateRequest] = useState(0);
@@ -122,6 +126,14 @@ function App() {
     }[],
   });
 
+  useEffect(() => {
+    const syncPath = () => setPublicPath(window.location.pathname);
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+  useEffect(() => {
+    if (!session) document.title = "Véndeme Fácil | Tu negocio en orden";
+  }, [session, publicPath]);
   useEffect(() => {
     const updateConnection = () => setOnline(navigator.onLine);
     window.addEventListener("online", updateConnection);
@@ -163,7 +175,24 @@ function App() {
     return () => window.removeEventListener("vendemefacil:navigate", navigate);
   }, []);
 
-  if (!session) return <AuthPage onAuthenticated={setSession} />;
+  const navigatePublic = (path: string) => {
+    window.history.pushState({}, "", path);
+    setPublicPath(path);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  if (!session) {
+    if (publicPath === "/reset-password")
+      return <AuthPage onAuthenticated={setSession} />;
+    if (publicPath === "/acceso")
+      return <AuthPage onAuthenticated={setSession} initialMode={authMode} onBack={() => navigatePublic("/")} />;
+    if (publicPath === "/impresion")
+      return <PrintingSetupPage onBack={() => navigatePublic("/")} onAccess={() => { setAuthMode("login"); navigatePublic("/acceso"); }} />;
+    return <LandingPage
+      onAccess={(mode = "login") => { setAuthMode(mode); navigatePublic("/acceso"); }}
+      onPrinting={() => navigatePublic("/impresion")}
+    />;
+  }
 
   const firstName = session.user.displayName.split(" ")[0];
   const initials = session.user.displayName
@@ -175,6 +204,9 @@ function App() {
   const logout = () => {
     clearSession();
     setSession(null);
+    setAuthMode("login");
+    window.history.pushState({}, "", "/acceso");
+    setPublicPath("/acceso");
   };
   const openReminderWhatsApp = (reminder: LayawayReminder) => {
     if (!reminder.phone) return;

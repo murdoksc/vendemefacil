@@ -55,6 +55,19 @@ public sealed class PasswordResetToken : Entity
     public AppUser User { get; set; } = null!;
 }
 
+public sealed class ProspectLead : Entity
+{
+    public required string ContactName { get; set; }
+    public required string BusinessName { get; set; }
+    public required string Phone { get; set; }
+    public string? Email { get; set; }
+    public string? City { get; set; }
+    public string? BusinessType { get; set; }
+    public string? PreferredContactTime { get; set; }
+    public string? Notes { get; set; }
+    public string Status { get; set; } = "New";
+}
+
 public sealed class Customer : TenantEntity
 {
     public required string Name { get; set; }
