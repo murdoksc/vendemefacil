@@ -181,13 +181,17 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  if (publicPath === "/impresion")
+    return <PrintingSetupPage
+      onBack={() => navigatePublic("/")}
+      onAccess={() => session ? navigatePublic("/") : (setAuthMode("login"), navigatePublic("/acceso"))}
+    />;
+
   if (!session) {
     if (publicPath === "/reset-password")
       return <AuthPage onAuthenticated={setSession} />;
     if (publicPath === "/acceso")
       return <AuthPage onAuthenticated={setSession} initialMode={authMode} onBack={() => navigatePublic("/")} />;
-    if (publicPath === "/impresion")
-      return <PrintingSetupPage onBack={() => navigatePublic("/")} onAccess={() => { setAuthMode("login"); navigatePublic("/acceso"); }} />;
     return <LandingPage
       onAccess={(mode = "login") => { setAuthMode(mode); navigatePublic("/acceso"); }}
       onPrinting={() => navigatePublic("/impresion")}

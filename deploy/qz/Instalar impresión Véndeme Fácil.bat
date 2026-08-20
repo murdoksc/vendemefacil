@@ -1,6 +1,14 @@
 @echo off
 setlocal
 title Instalador de impresion - Vendeme Facil
+
+net session >nul 2>&1
+if not "%errorlevel%"=="0" (
+  echo Windows solicitara permiso de administrador.
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
 set "INSTALLER_DIR=%~dp0"
 set "CERT_PATH=%INSTALLER_DIR%vendemefacil-qz.crt"
 set "SCRIPT_PATH=%INSTALLER_DIR%install-vendemefacil-qz-cert.ps1"
@@ -23,14 +31,14 @@ if not exist "%ProgramFiles%\QZ Tray\qz-tray-console.exe" (
   exit /b 2
 )
 
-echo Windows solicitara permiso para configurar la impresion silenciosa.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%SCRIPT_PATH%"" -CertificatePath ""%CERT_PATH%""'"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" -CertificatePath "%CERT_PATH%"
 if errorlevel 1 (
-  echo No se pudo completar la configuracion. Verifica el permiso de administrador.
+  echo No se pudo completar la configuracion. Toma una foto de este mensaje para soporte.
   pause
   exit /b 1
 )
 
 echo.
 echo La impresion silenciosa de Vendeme Facil quedo configurada.
+start "" "%ProgramFiles%\QZ Tray\qz-tray.exe"
 pause

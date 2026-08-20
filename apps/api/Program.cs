@@ -176,6 +176,8 @@ var auth = app.MapGroup("/api/auth");
 
 app.MapPost("/api/public/leads", async (
     CreateProspectLeadRequest request,
+    OutboundEmailQueue emailQueue,
+    IConfiguration configuration,
     VendemeFacilDbContext db,
     CancellationToken cancellationToken) =>
 {
@@ -195,7 +197,7 @@ app.MapPost("/api/public/leads", async (
         errors["email"] = ["Escribe un correo valido."];
     if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-    db.ProspectLeads.Add(new ProspectLead
+    var lead = new ProspectLead
     {
         ContactName = contactName,
         BusinessName = businessName,
@@ -205,8 +207,13 @@ app.MapPost("/api/public/leads", async (
         BusinessType = request.BusinessType?.Trim(),
         PreferredContactTime = request.PreferredContactTime?.Trim(),
         Notes = request.Notes?.Trim()
-    });
+    };
+    db.ProspectLeads.Add(lead);
     await db.SaveChangesAsync(cancellationToken);
+    var notificationAddress = configuration["Email:LeadNotificationAddress"]?.Trim();
+    if (!string.IsNullOrWhiteSpace(notificationAddress)
+        && System.Net.Mail.MailAddress.TryCreate(notificationAddress, out _))
+        emailQueue.TryQueue(OutboundEmailFactory.ProspectLead(notificationAddress, lead));
     return Results.Created("/api/public/leads", new { message = "Gracias. Te contactaremos muy pronto." });
 }).RequireRateLimiting("public-leads");
 

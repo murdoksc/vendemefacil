@@ -389,7 +389,7 @@ export function BusinessSettingsPage({
               <button type="button" className="button primary" onClick={testPrinter} disabled={qzStatus === "busy" || printSettings.mode !== "qz" || !printSettings.printerName}><Printer />Imprimir prueba</button>
             </div>
             {printMessage && <div className={qzStatus === "error" ? "form-error" : "form-success"}>{printMessage}</div>}
-            <p className="printer-help">Para probar sin impresora física, selecciona <b>Microsoft Print to PDF</b>. Al usar QZ por primera vez, acepta y recuerda el permiso del sitio.</p>
+            <p className="printer-help">Para probar sin impresora física, selecciona <b>Microsoft Print to PDF</b>. Si aparece una confirmación de QZ, instala o actualiza la <a href="/impresion" target="_blank" rel="noreferrer">impresión silenciosa</a>.</p>
           </section>
           <section className="card settings-section">
             <div className="settings-section-title">

@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.Channels;
 using Azure;
 using Azure.Communication.Email;
+using VendemeFacil.Api.Domain;
 
 namespace VendemeFacil.Api.Infrastructure;
 
@@ -9,6 +10,25 @@ public sealed record OutboundEmail(string Recipient, string Subject, string Html
 
 public static class OutboundEmailFactory
 {
+    public static OutboundEmail ProspectLead(string recipient, ProspectLead lead)
+    {
+        var fields = new[]
+        {
+            ("Contacto", lead.ContactName), ("Negocio", lead.BusinessName), ("Telefono", lead.Phone),
+            ("Correo", lead.Email ?? "No proporcionado"), ("Ciudad", lead.City ?? "No proporcionada"),
+            ("Giro", lead.BusinessType ?? "No proporcionado"),
+            ("Horario preferido", lead.PreferredContactTime ?? "Cualquier horario"),
+            ("Necesidades", lead.Notes ?? "Sin comentarios")
+        };
+        var htmlFields = string.Join("", fields.Select(field => $"<p><strong>{WebUtility.HtmlEncode(field.Item1)}:</strong> {WebUtility.HtmlEncode(field.Item2)}</p>"));
+        var plainFields = string.Join("\n", fields.Select(field => $"{field.Item1}: {field.Item2}"));
+        return new OutboundEmail(
+            recipient,
+            $"Nuevo interesado: {lead.BusinessName}",
+            $"<html><body style=\"font-family:Arial,sans-serif;color:#17251f;line-height:1.6\"><h2>Nuevo interesado en Vendeme Facil</h2>{htmlFields}</body></html>",
+            $"Nuevo interesado en Vendeme Facil\n{plainFields}");
+    }
+
     public static OutboundEmail PasswordReset(string recipient, string displayName, string businessName, string resetUrl)
     {
         var safeName = WebUtility.HtmlEncode(displayName);
