@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest, AuthSession } from "../lib/api";
+import { queueLocalAudit } from "../lib/audit";
 import { printReceipt } from "../lib/printReceipt";
 import { emailDocument } from "../lib/emailDocument";
 import { usePlanAccess } from "./PlanAccess";
+type Branch = { id: string; name: string };
 type Sale = {
   id: string;
   folio: string;
@@ -96,6 +98,7 @@ function CashReportReceipt({ report, businessName, logoUrl }: { report: CashRepo
 export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null }) {
   const planAccess = usePlanAccess();
   const [sales, setSales] = useState<Sale[]>([]),
+    [branches, setBranches] = useState<Branch[]>([]),
     [cuts, setCuts] = useState<Cut[]>([]),
     [query, setQuery] = useState(""),
     [detail, setDetail] = useState<Detail | null>(null),
@@ -152,7 +155,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
   }
   async function load() {
     try {
-      const [s, h, c] = await Promise.all([
+      const [s, h, c, b] = await Promise.all([
         apiRequest<Sale[]>("/api/v1/sales", {}, session),
         apiRequest<Cut[]>("/api/v1/cash/history", {}, session),
         apiRequest<CashSummary | undefined>(
@@ -160,10 +163,12 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
           {},
           session,
         ),
+        apiRequest<Branch[]>("/api/v1/branches", {}, session),
       ]);
       setSales(s);
       setCuts(h);
       setCash(c ?? null);
+      setBranches(b);
     } catch (e) {
       setError(
         e instanceof Error
@@ -196,6 +201,22 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
         },
         session,
       );
+
+      if (session && detail) {
+        queueLocalAudit(
+          "SALE_CANCEL",
+          `Se canceló la venta con Folio ${detail.folio} por un monto de $${detail.total}.`,
+          {
+            saleId: detail.id,
+            folio: detail.folio,
+            total: detail.total,
+            reason: "Devolución completa desde el historial"
+          },
+          session.user.id,
+          branches[0]?.id || "00000000-0000-0000-0000-000000000000"
+        );
+      }
+
       setDetail(null);
       setShowCancel(false);
       await load();
@@ -254,7 +275,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
     if (!cash) return;
     setBusy(true);
     try {
-      await apiRequest<{ id: string; expectedAmount: number; countedAmount: number; differenceAmount: number }>(
+      const r = await apiRequest<{ id: string; expectedAmount: number; countedAmount: number; differenceAmount: number }>(
           `/api/v1/cash/${cash.id}/close`,
           {
             method: "POST",
@@ -262,6 +283,22 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
           },
           session,
         );
+
+      if (session && r && r.differenceAmount !== 0) {
+        queueLocalAudit(
+          "CASH_SESSION_DIFF",
+          `Corte de caja cerrado con diferencia de $${r.differenceAmount} (Esperado: $${r.expectedAmount}, Contado: $${r.countedAmount}).`,
+          {
+            cashSessionId: cash.id,
+            expectedAmount: r.expectedAmount,
+            countedAmount: r.countedAmount,
+            differenceAmount: r.differenceAmount,
+          },
+          session.user.id,
+          branches[0]?.id || "00000000-0000-0000-0000-000000000000"
+        );
+      }
+
       setCutReport(await apiRequest<CashReport>(`/api/v1/cash/${cash.id}/report`, {}, session));
       setCash(null);
       setShowClose(false);

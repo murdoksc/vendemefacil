@@ -72,7 +72,21 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, ses
     },
   })
   if (!response.ok) throw new Error(await readError(response))
-  if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    // Sync audits in background on successful mutations
+    const isMutation = options.method && options.method.toUpperCase() !== 'GET';
+    if (isMutation && !path.includes('/audit/sync') && session) {
+      import('./audit').then(({ syncPendingAudits }) => syncPendingAudits(session)).catch(() => {});
+    }
+    return undefined as T
+  }
   const text = await response.text()
+  
+  // Sync audits in background on successful mutations
+  const isMutation = options.method && options.method.toUpperCase() !== 'GET';
+  if (isMutation && !path.includes('/audit/sync') && session) {
+    import('./audit').then(({ syncPendingAudits }) => syncPendingAudits(session)).catch(() => {});
+  }
+
   return (text ? JSON.parse(text) : undefined) as T
 }

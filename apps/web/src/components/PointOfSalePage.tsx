@@ -20,6 +20,7 @@ import { printReceipt } from "../lib/printReceipt";
 import { loadPrintSettings } from "../lib/qzPrinting";
 import { emailDocument } from "../lib/emailDocument";
 import { usePlanAccess } from "./PlanAccess";
+import { queueLocalAudit } from "../lib/audit";
 type Customer = { id: string; name: string; phone?: string | null; email?: string | null };
 type Branch = { id: string; name: string };
 type Cash = { id: string; branchId: string };
@@ -310,6 +311,24 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
       );
       const selectedCustomer = customers.find((customer) => customer.id === customerId);
       setReceipt({ ...r, customer: selectedCustomer?.name ?? "Público general", customerPhone: selectedCustomer?.phone, customerEmail: selectedCustomer?.email });
+      
+      if (session && discountValue > 0) {
+        queueLocalAudit(
+          "POS_MANUAL_DISCOUNT",
+          `Se aplicó un descuento manual de $${discountValue} al ticket Folio ${r.folio}.`,
+          {
+            saleId: r.id,
+            folio: r.folio,
+            subtotal,
+            discount: discountValue,
+            total,
+            itemsCount: cart.length
+          },
+          session.user.id,
+          cash.branchId
+        );
+      }
+
       setCart([]);
       setDiscount("0");
       setReceived("");

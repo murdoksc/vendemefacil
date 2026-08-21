@@ -34,7 +34,7 @@ const plans: Record<
     features: [
       "Punto de venta e inventario",
       "Tickets impresos con diálogo",
-      "Reportes básicos",
+      "Reportes básicos (Ventas y Ticket promedio)",
       "1 usuario y 1 sucursal",
     ],
   },
@@ -44,7 +44,8 @@ const plans: Record<
     features: [
       "WhatsApp y correo integrados",
       "Impresión silenciosa QZ Tray",
-      "Reportes completos",
+      "Reportes completos (Tendencia, Pagos y Productos)",
+      "Bitácora de Auditoría y control de seguridad",
       "5 usuarios y 2 sucursales",
     ],
   },
@@ -53,6 +54,7 @@ const plans: Record<
     price: 799,
     features: [
       "Todo lo incluido en Negocio",
+      "Bitácora de Auditoría y control de seguridad",
       "15 usuarios y 5 sucursales",
       "Marca personalizada en sistema y tickets",
       "Reportes consolidados por sucursal",

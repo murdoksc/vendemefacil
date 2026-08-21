@@ -72,7 +72,9 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
   const [layaways, setLayaways] = useState<Layaway[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [products, setProducts] = useState<ApiProduct[]>([]),
-    [branches, setBranches] = useState<Branch[]>([]);
+    [branches, setBranches] = useState<Branch[]>([]),
+    [reminders, setReminders] = useState<any[]>([]),
+    [showOnlyReminders, setShowOnlyReminders] = useState(false);
   const [query, setQuery] = useState(""),
     [status, setStatus] = useState(""),
     [showCreate, setShowCreate] = useState(false),
@@ -93,16 +95,18 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
     [productHighlight, setProductHighlight] = useState(0);
   async function load() {
     try {
-      const [l, c, p, b] = await Promise.all([
+      const [l, c, p, b, r] = await Promise.all([
         apiRequest<Layaway[]>("/api/v1/layaways", {}, session),
         apiRequest<Customer[]>("/api/v1/customers", {}, session),
         apiRequest<ApiProduct[]>("/api/v1/products", {}, session),
         apiRequest<Branch[]>("/api/v1/branches", {}, session),
+        apiRequest<any[]>("/api/v1/layaways/reminders", {}, session),
       ]);
       setLayaways(l);
       setCustomers(c);
       setProducts(p);
       setBranches(b);
+      setReminders(r);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -114,10 +118,13 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
   useEffect(() => {
     void load();
   }, []);
+  const reminderIds = useMemo(() => new Set(reminders.map((r) => r.id)), [reminders]);
+
   const visible = useMemo(
     () =>
       layaways.filter(
         (x) =>
+          (!showOnlyReminders || reminderIds.has(x.id)) &&
           (!status ||
             (status === "Overdue"
               ? x.status === "Active" && new Date(x.dueAtUtc) < new Date()
@@ -126,7 +133,7 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
             normalize(query),
           ),
       ),
-    [layaways, status, query],
+    [layaways, status, query, showOnlyReminders, reminderIds],
   );
   const customerMatches =
     customerQuery && !customerId
@@ -382,6 +389,42 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
         </div>
       )}
       {success && <div className="form-success layaway-success">{success}</div>}
+
+      {reminders.length > 0 && (
+        <div style={{
+          background: "var(--brand-accent, #f5c45e)",
+          color: "#1e1e1e",
+          padding: "16px",
+          borderRadius: "var(--app-radius, 12px)",
+          marginBottom: "20px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "12px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "1.4em" }}>🔔</span>
+            <div>
+              <strong style={{ display: "block", fontSize: "0.95em" }}>Tienes {reminders.length} apartados vencidos o por vencer pronto</strong>
+              <span style={{ fontSize: "0.85em", opacity: 0.9 }}>
+                Recupera tu flujo de efectivo enviando recordatorios de cobro de saldos con un solo clic.
+              </span>
+            </div>
+          </div>
+          <button
+            className="button primary"
+            style={{ background: "var(--brand-primary, #123f35)", color: "#fff", border: "none", height: "34px", padding: "0 14px", fontSize: "0.8em", width: "auto" }}
+            onClick={() => {
+              setShowOnlyReminders(!showOnlyReminders);
+            }}
+          >
+            {showOnlyReminders ? "Mostrar todos" : "Filtrar por cobrar"}
+          </button>
+        </div>
+      )}
+
       <section className="layaway-summary">
         <article>
           <WalletCards />

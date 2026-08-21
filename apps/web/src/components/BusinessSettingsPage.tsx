@@ -336,6 +336,57 @@ export function BusinessSettingsPage({
                   placeholder="¡Gracias por tu compra!"
                 />
               </label>
+
+              <div className="wide" style={{
+                marginTop: "16px",
+                padding: "16px",
+                background: "var(--app-background, #f4f5ef)",
+                borderRadius: "var(--app-radius, 12px)",
+                border: "1px solid var(--border, #d6e0da)",
+              }}>
+                <strong style={{ display: "block", fontSize: "0.95em", marginBottom: "4px" }}>
+                  🔗 Enlace de tu catálogo digital
+                </strong>
+                <p style={{ margin: "0 0 12px 0", fontSize: "0.85em", color: "var(--text-muted, #6d7e77)" }}>
+                  Comparte este enlace con tus clientes por WhatsApp o redes sociales para que realicen pedidos en línea.
+                </p>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <input
+                    readOnly
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    value={`${window.location.origin}/catalogo/${settings.slug}`}
+                    style={{
+                      flexGrow: 1,
+                      height: "36px",
+                      padding: "0 12px",
+                      fontSize: "0.85em",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border, #d6e0da)",
+                      background: "#fff",
+                      cursor: "pointer"
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="button secondary"
+                    style={{ height: "36px", padding: "0 12px", fontSize: "0.8em", width: "auto" }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/catalogo/${settings.slug}`);
+                      window.alert("¡Enlace copiado al portapapeles!");
+                    }}
+                  >
+                    Copiar
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary"
+                    style={{ height: "36px", padding: "0 12px", fontSize: "0.8em", width: "auto" }}
+                    onClick={() => window.open(`/catalogo/${settings.slug}`, "_blank")}
+                  >
+                    Ver catálogo
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
           <section className="card settings-section">

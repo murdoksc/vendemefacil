@@ -27,6 +27,7 @@ public sealed class VendemeFacilDbContext(
     public DbSet<Layaway> Layaways => Set<Layaway>();
     public DbSet<LayawayItem> LayawayItems => Set<LayawayItem>();
     public DbSet<LayawayPayment> LayawayPayments => Set<LayawayPayment>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -81,6 +82,7 @@ public sealed class VendemeFacilDbContext(
         modelBuilder.Entity<ProductVariant>().HasAlternateKey(x => new { x.TenantId, x.Id });
         modelBuilder.Entity<Product>().Property(x => x.ImageUrl).HasMaxLength(500);
         modelBuilder.Entity<Customer>().HasAlternateKey(x => new { x.TenantId, x.Id });
+        modelBuilder.Entity<AuditLog>().HasAlternateKey(x => new { x.TenantId, x.Id });
 
         modelBuilder.Entity<Branch>()
             .HasOne(x => x.Tenant)
@@ -185,6 +187,7 @@ public sealed class VendemeFacilDbContext(
         modelBuilder.Entity<Layaway>().HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<LayawayItem>().HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         modelBuilder.Entity<LayawayPayment>().HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        modelBuilder.Entity<AuditLog>().HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
 
         modelBuilder.Entity<AppUser>().HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
         modelBuilder.Entity<Customer>().HasIndex(x => new { x.TenantId, x.Name });
@@ -236,6 +239,19 @@ public sealed class VendemeFacilDbContext(
         modelBuilder.Entity<LayawayPayment>().Property(x => x.Amount).HasPrecision(18, 2);
         modelBuilder.Entity<LayawayPayment>().Property(x => x.Note).HasMaxLength(300);
         modelBuilder.Entity<LayawayPayment>().HasOne(x => x.CashSession).WithMany().HasForeignKey(x => new { x.TenantId, x.CashSessionId }).HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.Description).HasMaxLength(500);
+            entity.Property(x => x.DetailsJson).HasMaxLength(4000);
+            entity.Property(x => x.IpAddress).HasMaxLength(45);
+            entity.HasOne(x => x.PerformedByUser)
+                .WithMany()
+                .HasForeignKey(nameof(AuditLog.TenantId), nameof(AuditLog.PerformedByUserId))
+                .HasPrincipalKey(nameof(AppUser.TenantId), nameof(AppUser.Id))
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

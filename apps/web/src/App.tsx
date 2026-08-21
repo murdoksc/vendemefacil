@@ -22,6 +22,8 @@ import {
   TrendingUp,
   Users,
   X,
+  ShieldAlert,
+  Share2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPage } from "./components/AuthPage";
@@ -45,6 +47,8 @@ import { PlatformSubscriptionsPage } from "./components/PlatformSubscriptionsPag
 import { PlatformAdminHub } from "./components/PlatformAdminHub";
 import { OnboardingPanel } from "./components/OnboardingPanel";
 import { PlanAccessProvider, showUpgradeRequired } from "./components/PlanAccess";
+import { AuditPage } from "./components/AuditPage";
+import { CatalogShowcasePage } from "./components/CatalogShowcasePage";
 import { apiRequest, AuthSession, clearSession, loadSession } from "./lib/api";
 import { emailDocument } from "./lib/emailDocument";
 
@@ -57,6 +61,7 @@ const navItems = [
   { label: "Apartados", icon: CalendarClock },
   { label: "Clientes", icon: Users },
   { label: "Reportes", icon: BarChart3 },
+  { label: "Auditoría", icon: ShieldAlert },
 ];
 
 type LayawayReminder = {
@@ -200,6 +205,13 @@ function App() {
   if (publicPath === "/administracion/suscripciones")
     return <PlatformSubscriptionsPage onBack={() => navigatePublic("/administracion")} />;
 
+  if (publicPath.startsWith("/catalogo/")) {
+    const catalogSlug = publicPath.split("/")[2];
+    if (catalogSlug) {
+      return <CatalogShowcasePage slug={catalogSlug} />;
+    }
+  }
+
   if (!session) {
     if (publicPath === "/reset-password")
       return <AuthPage onAuthenticated={setSession} />;
@@ -286,13 +298,19 @@ function App() {
         <nav>
           <p className="nav-label">OPERACIÓN</p>
           {navItems
-            .filter(({ label }) => isManager || (label !== "Inventario" && label !== "Reportes"))
+            .filter(({ label }) => {
+              if (label === "Auditoría") return session.user.role === "Owner";
+              return isManager || (label !== "Inventario" && label !== "Reportes");
+            })
             .map(({ label, icon: Icon }) => (
             <button
               className={activePage === label ? "nav-item active" : "nav-item"}
               key={label}
               onClick={() => {
-                if (label === "Reportes" && planCode === "esencial") { showUpgradeRequired("Reportes completos"); return; }
+                if (label === "Auditoría" && planCode === "esencial") {
+                  showUpgradeRequired("Bitácora de Auditoría");
+                  return;
+                }
                 setActivePage(label);
                 setMenuOpen(false);
               }}
@@ -488,6 +506,8 @@ function App() {
           <InventoryPage session={session} />
         ) : activePage === "Mi plan" && isManager ? (
           <SubscriptionPage session={session} />
+        ) : activePage === "Auditoría" && session.user.role === "Owner" ? (
+          <AuditPage session={session} onBack={() => setActivePage("Inicio")} />
         ) : activePage === "Configuración" && isManager ? (
           <BusinessSettingsPage
             session={session}
@@ -518,6 +538,18 @@ function App() {
                     Entrada rápida
                   </button>
                 )}
+                <button
+                  className="button secondary"
+                  style={{ background: "var(--brand-accent, #f5c45e)", color: "#1e1e1e", border: "none" }}
+                  onClick={() => {
+                    const slug = businessSettings?.slug ?? session.user.businessSlug;
+                    navigator.clipboard.writeText(`${window.location.origin}/catalogo/${slug}`);
+                    window.alert("¡Enlace de tu catálogo digital copiado! Compártelo por WhatsApp con tus clientes para que hagan pedidos.");
+                  }}
+                >
+                  <Share2 />
+                  Compartir catálogo
+                </button>
                 <button
                   className="button primary"
                   onClick={() => setActivePage("Punto de venta")}

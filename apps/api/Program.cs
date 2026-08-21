@@ -518,6 +518,75 @@ auth.MapPost("/reset-password", async (
     return result;
 }).RequireRateLimiting("password-recovery");
 
+var publicGroup = app.MapGroup("/api/v1/public");
+
+publicGroup.MapGet("/catalog/{slug}", async (
+    string slug,
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var trimmedSlug = slug.Trim().ToLowerInvariant();
+    
+    var tenant = await db.Tenants
+        .IgnoreQueryFilters()
+        .AsNoTracking()
+        .SingleOrDefaultAsync(x => x.Slug == trimmedSlug, cancellationToken);
+
+    if (tenant == null || !tenant.IsActive)
+        return Results.NotFound();
+
+    var categories = await db.Categories
+        .IgnoreQueryFilters()
+        .AsNoTracking()
+        .Where(x => x.TenantId == tenant.Id && x.IsActive)
+        .Select(x => new { x.Id, x.Name })
+        .ToListAsync(cancellationToken);
+
+    var products = await db.ProductVariants
+        .IgnoreQueryFilters()
+        .AsNoTracking()
+        .Where(x => x.TenantId == tenant.Id && x.IsActive && x.Product.IsActive)
+        .OrderBy(x => x.Product.Name)
+        .Select(x => new
+        {
+            x.ProductId,
+            ProductName = x.Product.Name,
+            CategoryName = x.Product.Category != null ? x.Product.Category.Name : null,
+            x.Product.CategoryId,
+            x.Product.ImageUrl,
+            VariantId = x.Id,
+            VariantName = x.Name,
+            x.Sku,
+            x.Barcode,
+            x.Price,
+            Stock = db.InventoryBalances.IgnoreQueryFilters().Where(b => b.TenantId == tenant.Id && b.ProductVariantId == x.Id).Sum(b => b.Quantity)
+        })
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(new
+    {
+        Business = new
+        {
+            tenant.Name,
+            tenant.Slug,
+            tenant.PrimaryColor,
+            tenant.AccentColor,
+            tenant.ButtonColor,
+            tenant.HoverColor,
+            tenant.BackgroundColor,
+            tenant.SurfaceColor,
+            tenant.TextColor,
+            tenant.CornerRadius,
+            tenant.Phone,
+            tenant.Address,
+            tenant.LogoUrl,
+            PlanCode = tenant.PlanCode
+        },
+        Categories = categories,
+        Products = products
+    });
+});
+
 var api = app.MapGroup("/api/v1").RequireAuthorization();
 api.AddEndpointFilter(async (context, next) =>
 {
@@ -536,6 +605,75 @@ api.MapGet("/subscription", async (ITenantContext tenantContext, VendemeFacilDbC
     var payments = await db.SubscriptionPayments.AsNoTracking().Where(x => x.TenantId == tenant.Id).OrderByDescending(x => x.PaidAtUtc).Take(24).ToListAsync(cancellationToken);
     var effectiveEnd = tenant.SubscriptionStatus == "Trial" ? tenant.TrialEndsAtUtc : tenant.CurrentPeriodEndsAtUtc;
     return Results.Ok(new { tenant.PlanCode, tenant.SubscriptionStatus, tenant.TrialEndsAtUtc, tenant.CurrentPeriodEndsAtUtc, GraceEndsAtUtc = effectiveEnd?.AddDays(7), Capabilities = PlanCatalog.Get(tenant.PlanCode), Payments = payments });
+});
+
+api.MapPost("/audit/sync", async (
+    AuditSyncRequest request,
+    VendemeFacilDbContext db,
+    ITenantContext tenant,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
+{
+    if (request?.Logs == null || request.Logs.Count == 0)
+        return Results.NoContent();
+
+    var tenantId = tenant.TenantId;
+    var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    var clientIds = request.Logs.Select(x => x.Id).ToList();
+    var existingIds = await db.AuditLogs
+        .IgnoreQueryFilters()
+        .Where(x => x.TenantId == tenantId && clientIds.Contains(x.Id))
+        .Select(x => x.Id)
+        .ToListAsync(cancellationToken);
+
+    var logsToInsert = request.Logs
+        .Where(x => !existingIds.Contains(x.Id))
+        .Select(x => new AuditLog
+        {
+            Id = x.Id,
+            TenantId = tenantId,
+            Action = x.Action,
+            Description = x.Description,
+            DetailsJson = x.DetailsJson,
+            PerformedByUserId = x.PerformedByUserId,
+            BranchId = x.BranchId,
+            ClientCreatedAtUtc = x.ClientCreatedAtUtc,
+            IpAddress = ipAddress
+        })
+        .ToList();
+
+    if (logsToInsert.Count > 0)
+    {
+        await db.AuditLogs.AddRangeAsync(logsToInsert, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    return Results.NoContent();
+});
+
+api.MapGet("/audit", async (
+    VendemeFacilDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var logs = await db.AuditLogs
+        .AsNoTracking()
+        .Include(x => x.PerformedByUser)
+        .OrderByDescending(x => x.ClientCreatedAtUtc)
+        .Take(150)
+        .Select(x => new
+        {
+            x.Id,
+            x.Action,
+            x.Description,
+            x.DetailsJson,
+            PerformedByUser = x.PerformedByUser.DisplayName,
+            x.ClientCreatedAtUtc,
+            x.IpAddress
+        })
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(logs);
 });
 api.MapPost("/subscription/change-request", async (RequestPlanChangeRequest request, HttpContext context, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
+import { queueLocalAudit } from "../lib/audit";
 type Branch = { id: string; name: string };
 type Category = { id: string; name: string };
 const money = new Intl.NumberFormat("es-MX", {
@@ -180,6 +181,33 @@ export function ProductsPage({
           session,
         );
       }
+
+      if (mode === "edit" && session && selected) {
+        const originalPrice = selected.price;
+        const originalCost = selected.cost;
+        const newPrice = Number(d.get("price"));
+        const newCost = Number(d.get("cost"));
+
+        if (originalPrice !== newPrice || originalCost !== newCost) {
+          queueLocalAudit(
+            "CATALOG_PRICE_CHANGE",
+            `Se modificaron los precios de ${selected.name} (${selected.variant}). Precio: $${originalPrice} → $${newPrice}, Costo: $${originalCost} → $${newCost}.`,
+            {
+              productVariantId: selected.variantId,
+              productName: selected.name,
+              variantName: selected.variant,
+              sku: selected.sku,
+              oldPrice: originalPrice,
+              newPrice: newPrice,
+              oldCost: originalCost,
+              newCost: newCost,
+            },
+            session.user.id,
+            branches[0]?.id
+          );
+        }
+      }
+
       setMode(null);
       setSelected(null);
       await load();
@@ -207,6 +235,24 @@ export function ProductsPage({
         },
         session,
       );
+
+      if (session && selected) {
+        queueLocalAudit(
+          "INVENTORY_ADJUSTMENT",
+          `Ajuste manual de inventario para ${selected.name} (${selected.variant}): ${Number(d.get("quantityChange")) > 0 ? "+" : ""}${d.get("quantityChange")} piezas. Motivo: ${d.get("reason") || "Sin motivo"}.`,
+          {
+            productVariantId: selected.variantId,
+            productName: selected.name,
+            variantName: selected.variant,
+            sku: selected.sku,
+            quantityChange: Number(d.get("quantityChange")),
+            reason: d.get("reason"),
+          },
+          session.user.id,
+          branches[0]?.id
+        );
+      }
+
       setMode(null);
       await load();
     } catch (e) {

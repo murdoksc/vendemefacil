@@ -17,6 +17,7 @@ type Capabilities = {
   silentPrinting: boolean;
   fullReports: boolean;
   customBranding: boolean;
+  securityAudit: boolean;
 };
 type Subscription = {
   planCode: string;
@@ -31,7 +32,7 @@ type Access = {
   require: (
     feature: keyof Pick<
       Capabilities,
-      "emailAndWhatsApp" | "silentPrinting" | "fullReports" | "customBranding"
+      "emailAndWhatsApp" | "silentPrinting" | "fullReports" | "customBranding" | "securityAudit"
     >,
     label: string,
   ) => boolean;
@@ -70,7 +71,7 @@ export function PlanAccessProvider({
   function require(
     feature: keyof Pick<
       Capabilities,
-      "emailAndWhatsApp" | "silentPrinting" | "fullReports" | "customBranding"
+      "emailAndWhatsApp" | "silentPrinting" | "fullReports" | "customBranding" | "securityAudit"
     >,
     label: string,
   ) {
