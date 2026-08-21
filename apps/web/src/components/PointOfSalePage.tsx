@@ -13,6 +13,8 @@ import {
   MessageCircle,
   Mail,
   X,
+  CircleDollarSign,
+  LockKeyhole,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
@@ -21,7 +23,7 @@ import { loadPrintSettings } from "../lib/qzPrinting";
 import { emailDocument } from "../lib/emailDocument";
 import { usePlanAccess } from "./PlanAccess";
 import { queueLocalAudit } from "../lib/audit";
-type Customer = { id: string; name: string; phone?: string | null; email?: string | null };
+type Customer = { id: string; name: string; phone?: string | null; email?: string | null; walletBalance?: number };
 type Branch = { id: string; name: string };
 type Cash = { id: string; branchId: string };
 type Line = { product: ApiProduct; quantity: number };
@@ -50,7 +52,23 @@ const money = new Intl.NumberFormat("es-MX", {
   style: "currency",
   currency: "MXN",
 });
-export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage, allowNegativeStock }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null; allowNegativeStock: boolean }) {
+export function PointOfSalePage({
+  session,
+  businessName,
+  logoUrl,
+  ticketMessage,
+  allowNegativeStock,
+  loyaltyActive = false,
+  loyaltyCashbackPercent = 0
+}: {
+  session: AuthSession;
+  businessName?: string;
+  logoUrl?: string | null;
+  ticketMessage?: string | null;
+  allowNegativeStock: boolean;
+  loyaltyActive?: boolean;
+  loyaltyCashbackPercent?: number;
+}) {
   const autoPrintedFolio = useRef("");
   const planAccess = usePlanAccess();
   const [products, setProducts] = useState<ApiProduct[]>([]),
@@ -66,6 +84,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
     [cashPart, setCashPart] = useState(""),
     [cardPart, setCardPart] = useState(""),
     [transferPart, setTransferPart] = useState(""),
+    [walletPart, setWalletPart] = useState(""),
     [discount, setDiscount] = useState("0"),
     [payment, setPayment] = useState(1),
     [error, setError] = useState(""),
@@ -108,10 +127,15 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
       : [],
     [customers, customerId, customerQuery],
   );
+  const activeCustomer = useMemo(
+    () => customers.find((c) => c.id === customerId),
+    [customers, customerId],
+  );
   const subtotal = cart.reduce((s, x) => s + x.product.price * x.quantity, 0),
     discountValue = Math.min(Math.max(Number(discount) || 0, 0), subtotal),
     total = subtotal - discountValue,
-    change = payment === 1 ? Math.max(0, Number(received || 0) - total) : 0;
+    change = payment === 1 ? Math.max(0, Number(received || 0) - total) : 0,
+    cashbackEarned = loyaltyActive ? Math.round(total * (loyaltyCashbackPercent / 100) * 100) / 100 : 0;
   async function load() {
     try {
       const [p, b, c, current] = await Promise.all([
@@ -260,6 +284,16 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
       setError("El efectivo recibido no cubre el total.");
       return;
     }
+    if (payment === 5) {
+      if (!customerId) {
+        setError("Selecciona un cliente para pagar con monedero electrónico.");
+        return;
+      }
+      if ((activeCustomer?.walletBalance ?? 0) < total) {
+        setError(`El cliente no tiene saldo suficiente en su monedero electrónico (${money.format(activeCustomer?.walletBalance ?? 0)}).`);
+        return;
+      }
+    }
     const mixedPayments = [
       {
         method: 1,
@@ -276,15 +310,32 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
         amount: Number(transferPart) || 0,
         receivedAmount: Number(transferPart) || 0,
       },
+      {
+        method: 4, // Wallet = 4 on backend
+        amount: Number(walletPart) || 0,
+        receivedAmount: Number(walletPart) || 0,
+      },
     ].filter((part) => part.amount > 0);
-    if (
-      payment === 4 &&
-      Math.abs(
-        mixedPayments.reduce((sum, part) => sum + part.amount, 0) - total,
-      ) > 0.009
-    ) {
-      setError(`La suma del pago mixto debe ser ${money.format(total)}.`);
-      return;
+
+    if (payment === 4) {
+      if (Number(walletPart) > 0) {
+        if (!customerId) {
+          setError("Selecciona un cliente para usar saldo de monedero electrónico en pago mixto.");
+          return;
+        }
+        if ((activeCustomer?.walletBalance ?? 0) < Number(walletPart)) {
+          setError(`El cliente no tiene saldo suficiente en su monedero (${money.format(activeCustomer?.walletBalance ?? 0)}) para cubrir la cantidad especificada de ${money.format(Number(walletPart))}.`);
+          return;
+        }
+      }
+      if (
+        Math.abs(
+          mixedPayments.reduce((sum, part) => sum + part.amount, 0) - total,
+        ) > 0.009
+      ) {
+        setError(`La suma del pago mixto debe ser ${money.format(total)}.`);
+        return;
+      }
     }
     setBusy(true);
     setError("");
@@ -301,7 +352,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
               productVariantId: x.product.variantId,
               quantity: x.quantity,
             })),
-            paymentMethod: payment === 4 ? 1 : payment,
+            paymentMethod: payment === 4 ? 1 : (payment === 5 ? 4 : payment),
             receivedAmount: payment === 1 ? Number(received) : total,
             payments: payment === 4 ? mixedPayments : null,
             discount: discountValue,
@@ -335,6 +386,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
       setCashPart("");
       setCardPart("");
       setTransferPart("");
+      setWalletPart("");
       setCustomerId("");
       setCustomerQuery("");
       await load();
@@ -540,6 +592,30 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
               </div>
             )}
           </div>
+
+          {loyaltyActive && activeCustomer && (
+            <div style={{
+              background: "var(--app-background, #f4f5ef)",
+              padding: "12px",
+              borderRadius: "var(--app-radius, 12px)",
+              border: "1px solid var(--border, #d6e0da)",
+              marginBottom: "12px",
+              fontSize: "0.85em",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+                <span>💰 Saldo de Monedero:</span>
+                <span style={{ color: "var(--brand-primary, #123f35)" }}>{money.format(activeCustomer.walletBalance ?? 0)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted, #6d7e77)" }}>
+                <span>✨ Cashback acumulado esta venta ({loyaltyCashbackPercent}%):</span>
+                <span>+{money.format(cashbackEarned)}</span>
+              </div>
+            </div>
+          )}
+
           <label>
             Descuento ($)
             <input
@@ -591,6 +667,16 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
               <WalletCards />
               Mixto
             </button>
+            {loyaltyActive && activeCustomer && (
+              <button
+                className={payment === 5 ? "active" : ""}
+                onClick={() => setPayment(5)}
+                style={{ background: "var(--brand-background, #f4f5ef)", color: "var(--brand-primary, #123f35)", fontWeight: 700 }}
+              >
+                <CircleDollarSign />
+                Monedero
+              </button>
+            )}
           </div>
           {payment === 1 && (
             <label>
@@ -635,13 +721,27 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
                   step=".01"
                 />
               </label>
+              {loyaltyActive && activeCustomer && (
+                <label>
+                  Monedero (Máx: {money.format(activeCustomer.walletBalance ?? 0)})
+                  <input
+                    value={walletPart}
+                    onChange={(e) => setWalletPart(e.target.value)}
+                    type="number"
+                    min="0"
+                    max={activeCustomer.walletBalance ?? 0}
+                    step=".01"
+                  />
+                </label>
+              )}
               <div>
                 <span>Capturado</span>
                 <strong>
                   {money.format(
                     (Number(cashPart) || 0) +
                       (Number(cardPart) || 0) +
-                      (Number(transferPart) || 0),
+                      (Number(transferPart) || 0) +
+                      (Number(walletPart) || 0),
                   )}
                 </strong>
               </div>

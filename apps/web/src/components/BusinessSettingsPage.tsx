@@ -8,9 +8,12 @@ import {
   RefreshCw,
   Save,
   Store,
+  Sparkles,
+  LockKeyhole,
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequest, AuthSession } from "../lib/api";
+import { usePlanAccess, showUpgradeRequired } from "./PlanAccess";
 import {
   isQzConnected,
   listQzPrinters,
@@ -19,7 +22,6 @@ import {
   printQzTest,
   savePrintSettings,
 } from "../lib/qzPrinting";
-import { usePlanAccess } from "./PlanAccess";
 
 export type BusinessSettings = {
   name: string;
@@ -39,6 +41,8 @@ export type BusinessSettings = {
   phone: string | null;
   address: string | null;
   ticketMessage: string | null;
+  loyaltyActive: boolean;
+  loyaltyCashbackPercent: number;
 };
 
 type Theme = Pick<
@@ -180,6 +184,7 @@ export function BusinessSettingsPage({
   onSaved: (settings: BusinessSettings) => void;
 }) {
   const planAccess = usePlanAccess();
+  const isEsencial = planAccess.subscription?.planCode === "esencial";
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -401,6 +406,49 @@ export function BusinessSettingsPage({
               <input type="checkbox" checked={settings.allowNegativeStock} onChange={(event) => change({ allowNegativeStock: event.target.checked })} />
               <span><strong>Permitir ventas y apartados sin existencia</strong><small>El inventario podrá quedar en negativo hasta que registres una entrada o ajuste.</small></span>
             </label>
+          </section>
+
+          <section className="card settings-section">
+            <div className="settings-section-title">
+              <span><Sparkles /></span>
+              <div>
+                <h2>Programa de lealtad {isEsencial && <LockKeyhole size={14} style={{ color: "var(--brand-accent, #f5c45e)", marginLeft: 6, display: "inline-block" }} />}</h2>
+                <p>Configura el monedero electrónico y cashback de tus clientes.</p>
+              </div>
+            </div>
+            <label className="negative-stock-setting">
+              <input 
+                type="checkbox" 
+                checked={isEsencial ? false : settings.loyaltyActive} 
+                onChange={(event) => {
+                  if (isEsencial) {
+                    showUpgradeRequired("Programa de lealtad (Monedero Electrónico)");
+                    return;
+                  }
+                  change({ loyaltyActive: event.target.checked });
+                }} 
+              />
+              <span><strong>Activar monedero electrónico y cashback</strong><small>Los clientes acumularán dinero en su monedero electrónico al comprar en tu tienda.</small></span>
+            </label>
+            {!isEsencial && settings.loyaltyActive && (
+              <div className="form-grid" style={{ marginTop: "16px" }}>
+                <label className="wide">
+                  Porcentaje de Cashback (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={settings.loyaltyCashbackPercent}
+                    onChange={(e) => change({ loyaltyCashbackPercent: Number(e.target.value) || 0 })}
+                    style={{ marginTop: "6px" }}
+                  />
+                  <small style={{ color: "var(--text-muted)", fontSize: "0.8em", marginTop: "4px", display: "block" }}>
+                    Porcentaje de la venta neta que se abonará al monedero electrónico del cliente (ej. 5.0%).
+                  </small>
+                </label>
+              </div>
+            )}
           </section>
           <section className="card settings-section printer-settings">
             <div className="settings-section-title">

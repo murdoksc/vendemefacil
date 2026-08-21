@@ -131,7 +131,7 @@ export function PlanAccessProvider({
       )}
       {children}
       {locked && (
-        <div className="modal-backdrop">
+        <div className="modal-layer">
           <section className="upgrade-modal">
             <button className="close-form" onClick={() => setLocked("")}>
               <X />

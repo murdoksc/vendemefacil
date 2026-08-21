@@ -1,7 +1,8 @@
-import { ClipboardCheck, History, PackagePlus, Search } from "lucide-react";
+import { ClipboardCheck, History, PackagePlus, Search, LockKeyhole } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
 import { QuickEntryPage } from "./QuickEntryPage";
+import { usePlanAccess, showUpgradeRequired } from "./PlanAccess";
 type Branch = { id: string; name: string };
 type Movement = {
   id: string;
@@ -24,6 +25,8 @@ const labels: Record<string, string> = {
   Layaway: "Apartado",
 };
 export function InventoryPage({ session }: { session: AuthSession }) {
+  const planAccess = usePlanAccess();
+  const isEsencial = planAccess.subscription?.planCode === "esencial";
   const [tab, setTab] = useState<"entry" | "kardex" | "count">("entry"),
     [products, setProducts] = useState<ApiProduct[]>([]),
     [branches, setBranches] = useState<Branch[]>([]),
@@ -111,17 +114,31 @@ export function InventoryPage({ session }: { session: AuthSession }) {
         </button>
         <button
           className={tab === "kardex" ? "active" : ""}
-          onClick={() => setTab("kardex")}
+          onClick={() => {
+            if (isEsencial) {
+              showUpgradeRequired("Bitácora de movimientos (Kardex)");
+              return;
+            }
+            setTab("kardex");
+          }}
+          style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
         >
           <History />
-          Kardex
+          Kardex {isEsencial && <LockKeyhole size={12} style={{ color: "var(--brand-accent, #f5c45e)" }} />}
         </button>
         <button
           className={tab === "count" ? "active" : ""}
-          onClick={() => setTab("count")}
+          onClick={() => {
+            if (isEsencial) {
+              showUpgradeRequired("Conteo físico de inventario");
+              return;
+            }
+            setTab("count");
+          }}
+          style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
         >
           <ClipboardCheck />
-          Conteo
+          Conteo {isEsencial && <LockKeyhole size={12} style={{ color: "var(--brand-accent, #f5c45e)" }} />}
         </button>
       </div>
       {tab === "entry" ? (

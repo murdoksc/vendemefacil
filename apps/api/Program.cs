@@ -535,33 +535,46 @@ publicGroup.MapGet("/catalog/{slug}", async (
     if (tenant == null || !tenant.IsActive)
         return Results.NotFound();
 
-    var categories = await db.Categories
-        .IgnoreQueryFilters()
-        .AsNoTracking()
-        .Where(x => x.TenantId == tenant.Id && x.IsActive)
-        .Select(x => new { x.Id, x.Name })
-        .ToListAsync(cancellationToken);
+    var isLocked = tenant.PlanCode == "esencial";
 
-    var products = await db.ProductVariants
-        .IgnoreQueryFilters()
-        .AsNoTracking()
-        .Where(x => x.TenantId == tenant.Id && x.IsActive && x.Product.IsActive)
-        .OrderBy(x => x.Product.Name)
-        .Select(x => new
-        {
-            x.ProductId,
-            ProductName = x.Product.Name,
-            CategoryName = x.Product.Category != null ? x.Product.Category.Name : null,
-            x.Product.CategoryId,
-            x.Product.ImageUrl,
-            VariantId = x.Id,
-            VariantName = x.Name,
-            x.Sku,
-            x.Barcode,
-            x.Price,
-            Stock = db.InventoryBalances.IgnoreQueryFilters().Where(b => b.TenantId == tenant.Id && b.ProductVariantId == x.Id).Sum(b => b.Quantity)
-        })
-        .ToListAsync(cancellationToken);
+    object categories;
+    object products;
+
+    if (isLocked)
+    {
+        categories = new List<object>();
+        products = new List<object>();
+    }
+    else
+    {
+        categories = await db.Categories
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(x => x.TenantId == tenant.Id && x.IsActive)
+            .Select(x => new { x.Id, x.Name })
+            .ToListAsync(cancellationToken);
+
+        products = await db.ProductVariants
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(x => x.TenantId == tenant.Id && x.IsActive && x.Product.IsActive)
+            .OrderBy(x => x.Product.Name)
+            .Select(x => new
+            {
+                x.ProductId,
+                ProductName = x.Product.Name,
+                CategoryName = x.Product.Category != null ? x.Product.Category.Name : null,
+                x.Product.CategoryId,
+                x.Product.ImageUrl,
+                VariantId = x.Id,
+                VariantName = x.Name,
+                x.Sku,
+                x.Barcode,
+                x.Price,
+                Stock = db.InventoryBalances.IgnoreQueryFilters().Where(b => b.TenantId == tenant.Id && b.ProductVariantId == x.Id).Sum(b => b.Quantity)
+            })
+            .ToListAsync(cancellationToken);
+    }
 
     return Results.Ok(new
     {
@@ -580,7 +593,8 @@ publicGroup.MapGet("/catalog/{slug}", async (
             tenant.Phone,
             tenant.Address,
             tenant.LogoUrl,
-            PlanCode = tenant.PlanCode
+            PlanCode = tenant.PlanCode,
+            IsLocked = isLocked
         },
         Categories = categories,
         Products = products
@@ -857,7 +871,7 @@ api.MapGet("/branches", async (VendemeFacilDbContext db, CancellationToken cance
 
 api.MapGet("/customers", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
     Results.Ok(await db.Customers.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name)
-        .Select(x => new { x.Id, x.Name, x.Phone, x.Email, x.Notes, x.IsActive, Purchases = db.Sales.Count(s => s.CustomerId == x.Id && s.Status != SaleStatus.Cancelled), TotalSpent = db.Sales.Where(s => s.CustomerId == x.Id && s.Status != SaleStatus.Cancelled).Sum(s => (decimal?)s.Total) ?? 0 })
+        .Select(x => new { x.Id, x.Name, x.Phone, x.Email, x.Notes, x.IsActive, x.WalletBalance, Purchases = db.Sales.Count(s => s.CustomerId == x.Id && s.Status != SaleStatus.Cancelled), TotalSpent = db.Sales.Where(s => s.CustomerId == x.Id && s.Status != SaleStatus.Cancelled).Sum(s => (decimal?)s.Total) ?? 0 })
         .ToListAsync(cancellationToken)));
 api.MapPost("/customers", async (SaveCustomerRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
@@ -876,7 +890,7 @@ api.MapPut("/customers/{customerId:guid}", async (Guid customerId, SaveCustomerR
 api.MapGet("/business/settings", async (ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     var tenant = await db.Tenants.AsNoTracking().SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
-    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
+    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage, tenant.LoyaltyActive, tenant.LoyaltyCashbackPercent));
 });
 
 api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
@@ -886,6 +900,7 @@ api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, I
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["settings"] = ["Revisa el nombre y los colores seleccionados."] });
     var tenant = await db.Tenants.SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
     tenant.Name = request.Name.Trim(); tenant.PrimaryColor = request.PrimaryColor; tenant.AccentColor = request.AccentColor; tenant.ButtonColor = request.ButtonColor; tenant.HoverColor = request.HoverColor; tenant.BackgroundColor = request.BackgroundColor; tenant.SurfaceColor = request.SurfaceColor; tenant.TextColor = request.TextColor; tenant.CornerRadius = request.CornerRadius; tenant.LayawayReminderDaysBefore = request.LayawayReminderDaysBefore; tenant.AllowNegativeStock = request.AllowNegativeStock;
+    tenant.LoyaltyActive = request.LoyaltyActive; tenant.LoyaltyCashbackPercent = request.LoyaltyCashbackPercent;
     var logoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? null : request.LogoUrl.Trim();
     if (logoUrl is not null && (logoUrl.Length > 2048 || !Uri.TryCreate(logoUrl, UriKind.Absolute, out var logoUri) || (logoUri.Scheme != Uri.UriSchemeHttp && logoUri.Scheme != Uri.UriSchemeHttps)))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["logoUrl"] = ["La URL del logotipo debe ser una dirección HTTP o HTTPS válida de hasta 2,048 caracteres."] });
@@ -894,7 +909,7 @@ api.MapPut("/business/settings", async (UpdateBusinessSettingsRequest request, I
     tenant.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
     tenant.TicketMessage = string.IsNullOrWhiteSpace(request.TicketMessage) ? null : request.TicketMessage.Trim();
     await db.SaveChangesAsync(cancellationToken);
-    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage));
+    return Results.Ok(new BusinessSettingsResponse(tenant.Name, tenant.Slug, tenant.PrimaryColor, tenant.AccentColor, tenant.ButtonColor, tenant.HoverColor, tenant.BackgroundColor, tenant.SurfaceColor, tenant.TextColor, tenant.CornerRadius, tenant.LayawayReminderDaysBefore, tenant.AllowNegativeStock, tenant.LogoUrl, tenant.OperationMode.ToString(), tenant.Phone, tenant.Address, tenant.TicketMessage, tenant.LoyaltyActive, tenant.LoyaltyCashbackPercent));
 });
 
 var inventoryAdmin = api.MapGroup("/inventory").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
@@ -1034,16 +1049,44 @@ api.MapPost("/sales", async (CreateSaleRequest request, HttpContext context, ITe
     }
     sale.Subtotal = sale.Items.Sum(x => x.LineTotal);
     if (request.Discount < 0 || request.Discount > sale.Subtotal) return Results.ValidationProblem(new Dictionary<string, string[]> { ["discount"] = ["El descuento debe estar entre cero y el subtotal."] });
-    sale.Discount = decimal.Round(request.Discount, 2); sale.Total = sale.Subtotal - sale.Discount;
+    sale.Total = sale.Subtotal - decimal.Round(request.Discount, 2);
     var requestedPayments = request.Payments is { Count: > 0 } ? request.Payments : [new PaymentPartRequest(request.PaymentMethod, sale.Total, request.ReceivedAmount)];
     if (requestedPayments.Any(x => !Enum.IsDefined(x.Method) || x.Amount <= 0) || decimal.Round(requestedPayments.Sum(x => x.Amount), 2) != sale.Total)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["payments"] = ["La suma de los pagos debe ser exactamente igual al total de la venta."] });
+
+    // Validate and process wallet payments
+    var walletPayment = requestedPayments.FirstOrDefault(x => x.Method == PaymentMethod.Wallet);
+    if (walletPayment != null)
+    {
+        if (!request.CustomerId.HasValue)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["payments"] = ["Para pagar con monedero electrónico debes seleccionar un cliente."] });
+
+        var customer = await db.Customers.SingleOrDefaultAsync(x => x.Id == request.CustomerId.Value, cancellationToken);
+        if (customer == null || customer.WalletBalance < walletPayment.Amount)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["payments"] = ["El cliente seleccionado no tiene saldo suficiente en su monedero electrónico."] });
+
+        customer.WalletBalance -= walletPayment.Amount;
+    }
+
     foreach (var payment in requestedPayments)
     {
         var receivedAmount = payment.Method == PaymentMethod.Cash ? (payment.ReceivedAmount > 0 ? payment.ReceivedAmount : payment.Amount) : payment.Amount;
         if (receivedAmount < payment.Amount) return Results.ValidationProblem(new Dictionary<string, string[]> { ["receivedAmount"] = ["El efectivo recibido no cubre la parte pagada en efectivo."] });
         sale.Payments.Add(new SalePayment { Method = payment.Method, Amount = payment.Amount, ReceivedAmount = receivedAmount, ChangeAmount = payment.Method == PaymentMethod.Cash ? receivedAmount - payment.Amount : 0 });
     }
+
+    // Process loyalty cashback earning
+    var tenantRecord = await db.Tenants.SingleAsync(x => x.Id == tenant.TenantId, cancellationToken);
+    if (tenantRecord.LoyaltyActive && request.CustomerId.HasValue)
+    {
+        var customer = await db.Customers.SingleOrDefaultAsync(x => x.Id == request.CustomerId.Value, cancellationToken);
+        if (customer != null)
+        {
+            var cashback = decimal.Round(sale.Total * (tenantRecord.LoyaltyCashbackPercent / 100m), 2);
+            customer.WalletBalance += cashback;
+        }
+    }
+
     db.Sales.Add(sale); await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new { sale.Id, sale.Folio, sale.SoldAtUtc, sale.Subtotal, sale.Discount, sale.Total, Payments = sale.Payments.Select(x => new { Method = x.Method.ToString(), x.Amount, x.ReceivedAmount, x.ChangeAmount }), Items = sale.Items.Select(x => new { x.ProductName, x.VariantName, x.Sku, x.Quantity, x.UnitPrice, x.LineTotal }) });
 });

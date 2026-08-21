@@ -56,6 +56,7 @@ public sealed class VendemeFacilDbContext(
             entity.Property(x => x.FacebookClickId).HasMaxLength(300);
             entity.Property(x => x.GoogleClickId).HasMaxLength(300);
             entity.Property(x => x.BusinessType).HasMaxLength(80);
+            entity.Property(x => x.LoyaltyCashbackPercent).HasPrecision(5, 2);
         });
         modelBuilder.Entity<SubscriptionPayment>(entity =>
         {
@@ -195,6 +196,7 @@ public sealed class VendemeFacilDbContext(
         modelBuilder.Entity<Customer>().Property(x => x.Phone).HasMaxLength(30);
         modelBuilder.Entity<Customer>().Property(x => x.Email).HasMaxLength(200);
         modelBuilder.Entity<Customer>().Property(x => x.Notes).HasMaxLength(1000);
+        modelBuilder.Entity<Customer>().Property(x => x.WalletBalance).HasPrecision(18, 2);
         modelBuilder.Entity<Category>().HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         modelBuilder.Entity<ProductVariant>().HasIndex(x => new { x.TenantId, x.Sku }).IsUnique();
         modelBuilder.Entity<ProductVariant>().HasIndex(x => new { x.TenantId, x.Barcode }).IsUnique().HasFilter("[Barcode] IS NOT NULL");

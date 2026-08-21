@@ -24,6 +24,7 @@ import {
   X,
   ShieldAlert,
   Share2,
+  LockKeyhole,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthPage } from "./components/AuthPage";
@@ -499,7 +500,15 @@ function App() {
         ) : activePage === "Apartados" ? (
           <LayawaysPage session={session} allowNegativeStock={businessSettings?.allowNegativeStock ?? false} />
         ) : activePage === "Punto de venta" ? (
-          <PointOfSalePage session={session} businessName={businessSettings?.name} logoUrl={businessSettings?.logoUrl} ticketMessage={businessSettings?.ticketMessage} allowNegativeStock={businessSettings?.allowNegativeStock ?? false} />
+          <PointOfSalePage
+            session={session}
+            businessName={businessSettings?.name}
+            logoUrl={businessSettings?.logoUrl}
+            ticketMessage={businessSettings?.ticketMessage}
+            allowNegativeStock={businessSettings?.allowNegativeStock ?? false}
+            loyaltyActive={businessSettings?.loyaltyActive ?? false}
+            loyaltyCashbackPercent={businessSettings?.loyaltyCashbackPercent ?? 0}
+          />
         ) : activePage === "Productos" ? (
           <ProductsPage session={session} openCreate={productCreateRequest} />
         ) : activePage === "Inventario" && isManager ? (
@@ -542,13 +551,17 @@ function App() {
                   className="button secondary"
                   style={{ background: "var(--brand-accent, #f5c45e)", color: "#1e1e1e", border: "none" }}
                   onClick={() => {
+                    if (planCode === "esencial") {
+                      showUpgradeRequired("Catálogo digital autogenerado");
+                      return;
+                    }
                     const slug = businessSettings?.slug ?? session.user.businessSlug;
                     navigator.clipboard.writeText(`${window.location.origin}/catalogo/${slug}`);
                     window.alert("¡Enlace de tu catálogo digital copiado! Compártelo por WhatsApp con tus clientes para que hagan pedidos.");
                   }}
                 >
-                  <Share2 />
-                  Compartir catálogo
+                  {planCode === "esencial" ? <LockKeyhole size={16} /> : <Share2 />}
+                  Compartir catálogo {planCode === "esencial" && "(Plan Negocio)"}
                 </button>
                 <button
                   className="button primary"

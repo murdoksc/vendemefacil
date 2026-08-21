@@ -34,6 +34,8 @@ public sealed class Tenant : Entity
     public string? BusinessType { get; set; }
     public bool PrintingConfigured { get; set; }
     public bool OnboardingDismissed { get; set; }
+    public bool LoyaltyActive { get; set; } = false;
+    public decimal LoyaltyCashbackPercent { get; set; } = 5.0m;
     public ICollection<Branch> Branches { get; set; } = [];
 }
 
@@ -107,4 +109,5 @@ public sealed class Customer : TenantEntity
     public string? Email { get; set; }
     public string? Notes { get; set; }
     public bool IsActive { get; set; } = true;
+    public decimal WalletBalance { get; set; } = 0m;
 }

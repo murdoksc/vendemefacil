@@ -16,6 +16,7 @@ type BusinessInfo = {
   address: string | null;
   logoUrl: string | null;
   planCode: string;
+  isLocked?: boolean;
 };
 
 type Category = {
@@ -210,6 +211,42 @@ export function CatalogShowcasePage({ slug }: { slug: string }) {
 
   const { business, categories } = data;
   const isEsencialOrNegocio = business.planCode !== "pro";
+
+  if (business.isLocked) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f6f8", padding: "20px", fontFamily: "Manrope, sans-serif" }}>
+        <div className="card" style={{ maxWidth: "480px", textAlign: "center", padding: "40px 30px" }}>
+          <span style={{
+            display: "inline-flex",
+            padding: "18px",
+            borderRadius: "50%",
+            background: "#ffe3df",
+            color: "#862f27",
+            marginBottom: "20px",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.04)"
+          }}>
+            <LockKeyhole size={36} />
+          </span>
+          <h2 style={{ fontSize: "1.4em", marginBottom: "12px", fontWeight: 800, color: "var(--brand-primary, #123f35)" }}>
+            Catálogo inactivo
+          </h2>
+          <p style={{ color: "var(--text-muted, #6d7e77)", lineHeight: "1.6", marginBottom: "28px", fontSize: "0.95em" }}>
+            El catálogo digital de <strong>{business.name}</strong> está inactivo porque se encuentra en el plan <strong>Esencial</strong>. 
+            Esta función requiere actualizar su suscripción al plan <strong>Negocio</strong> o <strong>Pro</strong>. 
+            Si eres el propietario de esta tienda, inicia sesión para activarlo de inmediato.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <button className="button primary" onClick={() => window.location.href = "/acceso"} style={{ width: "100%", height: "42px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              Iniciar sesión para activar
+            </button>
+            <a href="/" style={{ textDecoration: "underline", fontSize: "0.9em", color: "var(--text-muted)", fontWeight: 700 }}>
+              Volver a Véndeme Fácil
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--app-background, #f5f6f8)", color: "var(--app-text, #17362e)", fontFamily: "Manrope, sans-serif", paddingBottom: "80px" }}>
