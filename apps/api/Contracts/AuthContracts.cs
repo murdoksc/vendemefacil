@@ -4,6 +4,7 @@ public sealed record RegisterBusinessRequest(string BusinessName, string OwnerNa
 public sealed record LoginRequest(string BusinessSlug, string Email, string Password);
 public sealed record PlatformLoginRequest(string Email, string Password);
 public sealed record UpdateTenantSubscriptionRequest(string PlanCode, string Status, DateTimeOffset? TrialEndsAtUtc, DateTimeOffset? CurrentPeriodEndsAtUtc, string? Notes, bool IsActive);
+public sealed record AdjustTenantSubscriptionRequest(string Action, int? Days, string? Notes);
 public sealed record UpdateLeadStatusRequest(string Status);
 public sealed record RecordSubscriptionPaymentRequest(decimal Amount, string Method, string? Reference, DateTimeOffset PaidAtUtc, DateTimeOffset PeriodStartsAtUtc, DateTimeOffset PeriodEndsAtUtc, string? Notes);
 public sealed record RequestPlanChangeRequest(string PlanCode);

@@ -19,6 +19,7 @@ import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
 import { loadPrintSettings } from "../lib/qzPrinting";
 import { emailDocument } from "../lib/emailDocument";
+import { usePlanAccess } from "./PlanAccess";
 type Customer = { id: string; name: string; phone?: string | null; email?: string | null };
 type Branch = { id: string; name: string };
 type Cash = { id: string; branchId: string };
@@ -50,6 +51,7 @@ const money = new Intl.NumberFormat("es-MX", {
 });
 export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage, allowNegativeStock }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null; allowNegativeStock: boolean }) {
   const autoPrintedFolio = useRef("");
+  const planAccess = usePlanAccess();
   const [products, setProducts] = useState<ApiProduct[]>([]),
     [branches, setBranches] = useState<Branch[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
@@ -326,6 +328,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
     }
   }
   function sendSaleWhatsApp(data: Receipt) {
+    if (!planAccess.require("emailAndWhatsApp", "Tickets por WhatsApp")) return;
     if (!data.customerPhone) return;
     let phone = data.customerPhone.replace(/\D/g, ""); if (phone.length === 10) phone = `52${phone}`;
     const lines = data.items.map((item) => `• ${item.quantity} x ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
@@ -333,6 +336,7 @@ export function PointOfSalePage({ session, businessName, logoUrl, ticketMessage,
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   }
   async function sendSaleEmail(data: Receipt) {
+    if (!planAccess.require("emailAndWhatsApp", "Tickets por correo")) return;
     const lines = data.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
     const content = `Folio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\nSubtotal: ${money.format(data.subtotal)}\nDescuento: -${money.format(data.discount)}\nTOTAL: ${money.format(data.total)}\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
     try {

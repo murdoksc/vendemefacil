@@ -14,6 +14,7 @@ public sealed class Product : TenantEntity
     public Guid? CategoryId { get; set; }
     public Category? Category { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsDemoData { get; set; }
     public ICollection<ProductVariant> Variants { get; set; } = [];
 }
 

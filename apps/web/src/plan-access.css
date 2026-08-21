@@ -1,0 +1,58 @@
+.trial-banner {
+  position: fixed;
+  z-index: 150;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: #fff5d9;
+  color: #6b4b0b;
+  box-shadow: 0 5px 18px #4f390e20;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.trial-banner.urgent { background: #ffe3df; color: #862f27; }
+.trial-banner button { border: 0; border-radius: 999px; padding: 5px 9px; background: #176b55; color: #fff; font-size: 9px; font-weight: 800; }
+.upgrade-modal {
+  width: min(440px, calc(100% - 30px));
+  padding: 32px;
+  border-radius: 20px;
+  background: #fff;
+  text-align: center;
+  position: relative;
+}
+.upgrade-modal > span {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  background: #e6f1ec;
+  color: #176b55;
+  display: grid;
+  place-items: center;
+}
+.upgrade-modal > span svg {
+  width: 25px;
+}
+.upgrade-modal h2 {
+  margin: 7px 0 10px;
+}
+.upgrade-modal > p:not(.eyebrow) {
+  color: #6c7d76;
+  line-height: 1.65;
+}
+.upgrade-modal > .button {
+  width: 100%;
+  margin-top: 12px;
+  justify-content: center;
+}
+.upgrade-later {
+  margin-top: 13px;
+  border: 0;
+  background: none;
+  color: #74827c;
+  font-weight: 700;
+}

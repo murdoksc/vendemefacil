@@ -19,6 +19,7 @@ import {
   printQzTest,
   savePrintSettings,
 } from "../lib/qzPrinting";
+import { usePlanAccess } from "./PlanAccess";
 
 export type BusinessSettings = {
   name: string;
@@ -178,6 +179,7 @@ export function BusinessSettingsPage({
   session: AuthSession;
   onSaved: (settings: BusinessSettings) => void;
 }) {
+  const planAccess = usePlanAccess();
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -198,12 +200,14 @@ export function BusinessSettingsPage({
     setError("");
   }
   function changePrint(update: Partial<LocalPrintSettings>) {
+    if (update.mode === "qz" && !planAccess.require("silentPrinting", "Impresión silenciosa con QZ Tray")) return;
     const next = { ...printSettings, ...update };
     setPrintSettings(next);
     savePrintSettings(next);
     setPrintMessage("Configuración de esta caja guardada.");
   }
   async function detectPrinters() {
+    if (!planAccess.require("silentPrinting", "Impresión silenciosa con QZ Tray")) return;
     setQzStatus("busy");
     setPrintMessage("");
     try {
@@ -217,6 +221,7 @@ export function BusinessSettingsPage({
     }
   }
   async function testPrinter() {
+    if (!planAccess.require("silentPrinting", "Impresión silenciosa con QZ Tray")) return;
     setQzStatus("busy");
     setPrintMessage("");
     try {

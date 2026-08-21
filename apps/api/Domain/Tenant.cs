@@ -31,6 +31,9 @@ public sealed class Tenant : Entity
     public string? AcquisitionCampaign { get; set; }
     public string? FacebookClickId { get; set; }
     public string? GoogleClickId { get; set; }
+    public string? BusinessType { get; set; }
+    public bool PrintingConfigured { get; set; }
+    public bool OnboardingDismissed { get; set; }
     public ICollection<Branch> Branches { get; set; } = [];
 }
 

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VendemeFacil.Api.Infrastructure;
 
@@ -11,9 +12,11 @@ using VendemeFacil.Api.Infrastructure;
 namespace VendemeFacil.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(VendemeFacilDbContext))]
-    partial class VendemeFacilDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260821004937_AddBusinessOnboarding")]
+    partial class AddBusinessOnboarding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -66,7 +69,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "Email")
                         .IsUnique();
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Branch", b =>
@@ -99,7 +102,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Branches", (string)null);
+                    b.ToTable("Branches");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.CashSession", b =>
@@ -152,7 +155,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "BranchId", "Status");
 
-                    b.ToTable("CashSessions", (string)null);
+                    b.ToTable("CashSessions");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Category", b =>
@@ -182,7 +185,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "Name")
                         .IsUnique();
 
-                    b.ToTable("Categories", (string)null);
+                    b.ToTable("Categories");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Customer", b =>
@@ -224,7 +227,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "Name");
 
-                    b.ToTable("Customers", (string)null);
+                    b.ToTable("Customers");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.InventoryBalance", b =>
@@ -263,7 +266,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "BranchId", "ProductVariantId")
                         .IsUnique();
 
-                    b.ToTable("InventoryBalances", (string)null);
+                    b.ToTable("InventoryBalances");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.InventoryMovement", b =>
@@ -312,7 +315,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "ProductVariantId");
 
-                    b.ToTable("InventoryMovements", (string)null);
+                    b.ToTable("InventoryMovements");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Layaway", b =>
@@ -373,7 +376,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "Folio")
                         .IsUnique();
 
-                    b.ToTable("Layaways", (string)null);
+                    b.ToTable("Layaways");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.LayawayItem", b =>
@@ -425,7 +428,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("LayawayId");
 
-                    b.ToTable("LayawayItems", (string)null);
+                    b.ToTable("LayawayItems");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.LayawayPayment", b =>
@@ -472,7 +475,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "CashSessionId");
 
-                    b.ToTable("LayawayPayments", (string)null);
+                    b.ToTable("LayawayPayments");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.PasswordResetToken", b =>
@@ -514,7 +517,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "UsedAtUtc");
 
-                    b.ToTable("PasswordResetTokens", (string)null);
+                    b.ToTable("PasswordResetTokens");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Product", b =>
@@ -556,7 +559,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "CategoryId");
 
-                    b.ToTable("Products", (string)null);
+                    b.ToTable("Products");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.ProductVariant", b =>
@@ -614,7 +617,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "Sku")
                         .IsUnique();
 
-                    b.ToTable("ProductVariants", (string)null);
+                    b.ToTable("ProductVariants");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.ProspectLead", b =>
@@ -673,7 +676,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("Status", "CreatedAtUtc");
 
-                    b.ToTable("ProspectLeads", (string)null);
+                    b.ToTable("ProspectLeads");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Sale", b =>
@@ -741,7 +744,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("TenantId", "Folio")
                         .IsUnique();
 
-                    b.ToTable("Sales", (string)null);
+                    b.ToTable("Sales");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.SaleItem", b =>
@@ -801,7 +804,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("SaleId");
 
-                    b.ToTable("SaleItems", (string)null);
+                    b.ToTable("SaleItems");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.SalePayment", b =>
@@ -841,7 +844,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("SaleId");
 
-                    b.ToTable("SalePayments", (string)null);
+                    b.ToTable("SalePayments");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionEvent", b =>
@@ -877,7 +880,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "CreatedAtUtc");
 
-                    b.ToTable("SubscriptionEvents", (string)null);
+                    b.ToTable("SubscriptionEvents");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionPayment", b =>
@@ -925,7 +928,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "PaidAtUtc");
 
-                    b.ToTable("SubscriptionPayments", (string)null);
+                    b.ToTable("SubscriptionPayments");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Tenant", b =>
@@ -1076,7 +1079,7 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.HasIndex("Slug")
                         .IsUnique();
 
-                    b.ToTable("Tenants", (string)null);
+                    b.ToTable("Tenants");
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.AppUser", b =>

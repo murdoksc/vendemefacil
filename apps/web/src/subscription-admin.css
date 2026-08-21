@@ -1,1 +1,171 @@
-.subscriptions-admin{min-height:100vh;padding:34px clamp(18px,4vw,60px);background:#f4f6f2;color:#17362e}.subscriptions-admin>header{display:flex;align-items:center;gap:25px}.subscriptions-admin>header>div{flex:1}.subscriptions-admin h1{margin:4px 0}.subscriptions-admin header button{padding:9px 12px;border:1px solid #d6e0da;border-radius:9px;background:#fff;display:flex;align-items:center;gap:7px}.subscriptions-admin header svg{width:16px}.subscriptions-layout{margin-top:28px;display:grid;grid-template-columns:280px 1fr;gap:18px}.subscriptions-layout>aside{padding:10px;border-radius:15px;background:#fff;display:flex;flex-direction:column;gap:4px;align-self:start}.subscriptions-layout>aside button{padding:13px;border:0;border-radius:9px;background:none;text-align:left}.subscriptions-layout>aside button.active{background:#e7f1ec}.subscriptions-layout>aside strong,.subscriptions-layout>aside small{display:block}.subscriptions-layout>aside small{margin-top:4px;color:#75847e}.subscriptions-layout>section{min-width:0;padding:27px;border-radius:15px;background:#fff}.subscription-owner{padding-bottom:18px;border-bottom:1px solid #e5eae7}.subscription-owner h2,.subscription-owner p{margin:0}.subscription-owner p{margin-top:5px;color:#71817b}.subscription-admin-form{margin-top:22px;padding:20px;border-radius:13px;background:#f7f9f6;display:grid;grid-template-columns:1fr 1fr;gap:13px}.subscription-admin-form h3{grid-column:1/-1;margin:0;display:flex;align-items:center;gap:7px}.subscription-admin-form h3 svg{width:18px}.subscription-admin-form label{display:grid;gap:6px;font-size:10px;font-weight:800}.subscription-admin-form label.wide{grid-column:1/-1}.subscription-admin-form input,.subscription-admin-form select,.subscription-admin-form textarea{height:39px;padding:0 10px;border:1px solid #d4dfd8;border-radius:8px;background:#fff}.subscription-admin-form textarea{height:70px;padding-top:9px}.subscription-admin-form>button{height:40px;border:0;border-radius:9px;background:#176b55;color:#fff;font-weight:800}.subscription-admin-history{margin-top:23px}.subscription-admin-history article{padding:13px 0;border-top:1px solid #e8ece9;display:grid;gap:4px}.subscription-admin-history span{font-size:11px}.subscription-admin-history small{color:#7b8983}@media(max-width:800px){.subscriptions-layout{grid-template-columns:1fr}.subscription-admin-form{grid-template-columns:1fr}.subscription-admin-form h3,.subscription-admin-form label.wide{grid-column:auto}.subscriptions-admin>header{align-items:flex-start;flex-direction:column}}
+.subscriptions-admin {
+  min-height: 100vh;
+  padding: 34px clamp(18px, 4vw, 60px);
+  background: #f4f6f2;
+  color: #17362e;
+}
+.subscription-admin-message { margin: 18px 0 0; }
+.subscription-quick-actions { margin-top: 18px; padding: 16px; border: 1px solid #dbe5df; border-radius: 13px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; background: #fbfcfa; }
+.subscription-quick-actions > div { display: grid; gap: 6px; }
+.subscription-quick-actions span { display: flex; gap: 7px; }
+.subscription-quick-actions input { width: 90px; height: 38px; padding: 0 9px; border: 1px solid #d4dfd8; border-radius: 8px; }
+.subscription-quick-actions button { height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: #176b55; color: #fff; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+.subscription-quick-actions button.suspend { background: #a33b35; }
+.subscription-quick-actions button:disabled { opacity: .45; }
+.subscription-quick-actions svg { width: 16px; }
+.subscription-quick-actions small { color: #72817b; }
+.subscriptions-admin > header {
+  display: flex;
+  align-items: center;
+  gap: 25px;
+}
+.subscriptions-admin > header > div {
+  flex: 1;
+}
+.subscriptions-admin h1 {
+  margin: 4px 0;
+}
+.subscriptions-admin header button {
+  padding: 9px 12px;
+  border: 1px solid #d6e0da;
+  border-radius: 9px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.subscriptions-admin header svg {
+  width: 16px;
+}
+.subscriptions-layout {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+}
+.subscriptions-layout > aside {
+  padding: 10px;
+  border-radius: 15px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: start;
+}
+.subscriptions-layout > aside button {
+  padding: 13px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  text-align: left;
+}
+.subscriptions-layout > aside button.active {
+  background: #e7f1ec;
+}
+.subscriptions-layout > aside strong,
+.subscriptions-layout > aside small {
+  display: block;
+}
+.subscriptions-layout > aside small {
+  margin-top: 4px;
+  color: #75847e;
+}
+.subscriptions-layout > section {
+  min-width: 0;
+  padding: 27px;
+  border-radius: 15px;
+  background: #fff;
+}
+.subscription-owner {
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5eae7;
+}
+.subscription-owner h2,
+.subscription-owner p {
+  margin: 0;
+}
+.subscription-owner p {
+  margin-top: 5px;
+  color: #71817b;
+}
+.subscription-admin-form {
+  margin-top: 22px;
+  padding: 20px;
+  border-radius: 13px;
+  background: #f7f9f6;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+.subscription-admin-form h3 {
+  grid-column: 1/-1;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.subscription-admin-form h3 svg {
+  width: 18px;
+}
+.subscription-admin-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.subscription-admin-form label.wide {
+  grid-column: 1/-1;
+}
+.subscription-admin-form input,
+.subscription-admin-form select,
+.subscription-admin-form textarea {
+  height: 39px;
+  padding: 0 10px;
+  border: 1px solid #d4dfd8;
+  border-radius: 8px;
+  background: #fff;
+}
+.subscription-admin-form textarea {
+  height: 70px;
+  padding-top: 9px;
+}
+.subscription-admin-form > button {
+  height: 40px;
+  border: 0;
+  border-radius: 9px;
+  background: #176b55;
+  color: #fff;
+  font-weight: 800;
+}
+.subscription-admin-history {
+  margin-top: 23px;
+}
+.subscription-admin-history article {
+  padding: 13px 0;
+  border-top: 1px solid #e8ece9;
+  display: grid;
+  gap: 4px;
+}
+.subscription-admin-history span {
+  font-size: 11px;
+}
+.subscription-admin-history small {
+  color: #7b8983;
+}
+@media (max-width: 800px) {
+  .subscription-quick-actions { grid-template-columns: 1fr; }
+  .subscriptions-layout {
+    grid-template-columns: 1fr;
+  }
+  .subscription-admin-form {
+    grid-template-columns: 1fr;
+  }
+  .subscription-admin-form h3,
+  .subscription-admin-form label.wide {
+    grid-column: auto;
+  }
+  .subscriptions-admin > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

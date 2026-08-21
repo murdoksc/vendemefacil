@@ -15,6 +15,7 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { ApiProduct, apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
 import { emailDocument } from "../lib/emailDocument";
+import { usePlanAccess } from "./PlanAccess";
 
 type Customer = { id: string; name: string; phone: string | null; email: string | null };
 type Branch = { id: string; name: string };
@@ -67,6 +68,7 @@ const statusLabel = (status: string) =>
       : "Cancelado";
 
 export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSession; allowNegativeStock: boolean }) {
+  const planAccess = usePlanAccess();
   const [layaways, setLayaways] = useState<Layaway[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [products, setProducts] = useState<ApiProduct[]>([]),
@@ -323,6 +325,7 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   }
   function whatsapp(x: Layaway) {
+    if (!planAccess.require("emailAndWhatsApp", "Apartados y recordatorios por WhatsApp")) return;
     if (!x.phone) {
       setError("Este cliente no tiene teléfono registrado.");
       return;
@@ -338,6 +341,7 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
     );
   }
   async function emailReminder(x: Layaway) {
+    if (!planAccess.require("emailAndWhatsApp", "Recordatorios por correo")) return;
     const date = new Date(x.dueAtUtc).toLocaleDateString("es-MX");
     const content = `Hola ${x.customer},\n\nTe recordamos que tu apartado ${x.folio} tiene un saldo de ${money.format(x.balance)} y vence el ${date}.\n\n¡Gracias!`;
     try {
@@ -348,6 +352,7 @@ export function LayawaysPage({ session, allowNegativeStock }: { session: AuthSes
     }
   }
   async function emailReceipt(data: { layaway: Layaway; title: string; amount: number }) {
+    if (!planAccess.require("emailAndWhatsApp", "Comprobantes por correo")) return;
     const items = data.layaway.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
     const content = `Cliente: ${data.layaway.customer}\nVencimiento: ${new Date(data.layaway.dueAtUtc).toLocaleDateString("es-MX")}\n\n${items}\n\nRecibido: ${money.format(data.amount)}\nPagado acumulado: ${money.format(data.layaway.paid)}\nSALDO: ${money.format(data.layaway.balance)}\n\nConserva este correo como comprobante.`;
     try {

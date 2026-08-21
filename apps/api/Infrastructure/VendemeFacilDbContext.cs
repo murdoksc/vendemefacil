@@ -54,6 +54,7 @@ public sealed class VendemeFacilDbContext(
             entity.Property(x => x.AcquisitionCampaign).HasMaxLength(200);
             entity.Property(x => x.FacebookClickId).HasMaxLength(300);
             entity.Property(x => x.GoogleClickId).HasMaxLength(300);
+            entity.Property(x => x.BusinessType).HasMaxLength(80);
         });
         modelBuilder.Entity<SubscriptionPayment>(entity =>
         {

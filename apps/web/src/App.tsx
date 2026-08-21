@@ -43,6 +43,8 @@ import { PrintingSetupPage } from "./components/PrintingSetupPage";
 import { SubscriptionPage } from "./components/SubscriptionPage";
 import { PlatformSubscriptionsPage } from "./components/PlatformSubscriptionsPage";
 import { PlatformAdminHub } from "./components/PlatformAdminHub";
+import { OnboardingPanel } from "./components/OnboardingPanel";
+import { PlanAccessProvider, showUpgradeRequired } from "./components/PlanAccess";
 import { apiRequest, AuthSession, clearSession, loadSession } from "./lib/api";
 import { emailDocument } from "./lib/emailDocument";
 
@@ -98,7 +100,6 @@ function applyTheme(settings: BusinessSettings) {
 function App() {
   const [publicPath, setPublicPath] = useState(() => window.location.pathname);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [selectedPlan, setSelectedPlan] = useState("negocio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePage, setActivePage] = useState("Inicio");
   const [productCreateRequest, setProductCreateRequest] = useState(0);
@@ -111,6 +112,7 @@ function App() {
   const [reminders, setReminders] = useState<LayawayReminder[]>([]);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [planCode, setPlanCode] = useState("esencial");
   const [dashboard, setDashboard] = useState({
     salesToday: 0,
     transactionsToday: 0,
@@ -173,6 +175,7 @@ function App() {
         })
         .catch(() => undefined);
   }, [session]);
+  useEffect(() => { if (session) apiRequest<{planCode:string}>("/api/v1/subscription", {}, session).then(x => setPlanCode(x.planCode)).catch(() => undefined); }, [session]);
   useEffect(() => {
     const navigate = (event: Event) =>
       setActivePage((event as CustomEvent<string>).detail);
@@ -201,9 +204,9 @@ function App() {
     if (publicPath === "/reset-password")
       return <AuthPage onAuthenticated={setSession} />;
     if (publicPath === "/acceso")
-      return <AuthPage onAuthenticated={setSession} initialMode={authMode} initialPlan={selectedPlan} onBack={() => navigatePublic("/")} />;
+      return <AuthPage onAuthenticated={setSession} initialMode={authMode} onBack={() => navigatePublic("/")} />;
     return <LandingPage
-      onAccess={(mode = "login", planCode) => { setAuthMode(mode); if (planCode) setSelectedPlan(planCode); navigatePublic("/acceso"); }}
+      onAccess={(mode = "login") => { setAuthMode(mode); navigatePublic("/acceso"); }}
       onPrinting={() => navigatePublic("/impresion")}
     />;
   }
@@ -223,6 +226,7 @@ function App() {
     setPublicPath("/acceso");
   };
   const openReminderWhatsApp = (reminder: LayawayReminder) => {
+    if (planCode === "esencial") { showUpgradeRequired("Recordatorios y tickets por WhatsApp"); return; }
     if (!reminder.phone) return;
     let phone = reminder.phone.replace(/\D/g, "");
     if (phone.length === 10) phone = `52${phone}`;
@@ -235,6 +239,7 @@ function App() {
     );
   };
   const openReminderEmail = async (reminder: LayawayReminder) => {
+    if (planCode === "esencial") { showUpgradeRequired("Envíos y recordatorios por correo"); return; }
     const dueDate = new Date(reminder.dueAtUtc).toLocaleDateString("es-MX");
     const content = `Hola ${reminder.customer},\n\nTe recordamos que tu apartado ${reminder.folio} tiene un saldo de ${reminderMoney.format(reminder.balance)} y vence el ${dueDate}.\n\n¡Gracias!`;
     try {
@@ -248,7 +253,7 @@ function App() {
     session.user.role === "Owner" || session.user.role === "Administrator";
 
   return (
-    <div className="app-shell">
+    <PlanAccessProvider session={session}><div className="app-shell">
       <aside className={menuOpen ? "sidebar open" : "sidebar"}>
         <div className="brand-row">
           <div className="brand-mark">
@@ -287,6 +292,7 @@ function App() {
               className={activePage === label ? "nav-item active" : "nav-item"}
               key={label}
               onClick={() => {
+                if (label === "Reportes" && planCode === "esencial") { showUpgradeRequired("Reportes completos"); return; }
                 setActivePage(label);
                 setMenuOpen(false);
               }}
@@ -493,6 +499,7 @@ function App() {
           />
         ) : (
           <div className="content">
+            {isManager && <OnboardingPanel session={session} onNavigate={setActivePage} />}
             <section className="welcome-row">
               <div>
                 <p className="eyebrow">
@@ -734,7 +741,7 @@ function App() {
           </div>
         )}
       </main>
-    </div>
+    </div></PlanAccessProvider>
   );
 }
 

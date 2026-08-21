@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiRequest, AuthSession } from "../lib/api";
 import { printReceipt } from "../lib/printReceipt";
 import { emailDocument } from "../lib/emailDocument";
+import { usePlanAccess } from "./PlanAccess";
 type Sale = {
   id: string;
   folio: string;
@@ -93,6 +94,7 @@ function CashReportReceipt({ report, businessName, logoUrl }: { report: CashRepo
   </div>;
 }
 export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { session: AuthSession; businessName?: string; logoUrl?: string | null; ticketMessage?: string | null }) {
+  const planAccess = usePlanAccess();
   const [sales, setSales] = useState<Sale[]>([]),
     [cuts, setCuts] = useState<Cut[]>([]),
     [query, setQuery] = useState(""),
@@ -119,6 +121,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
     [sales, query],
   );
   function sendSaleWhatsApp(data: Detail) {
+    if (!planAccess.require("emailAndWhatsApp", "Tickets por WhatsApp")) return;
     if (!data.customerPhone) return;
     let phone = data.customerPhone.replace(/\D/g, ""); if (phone.length === 10) phone = `52${phone}`;
     const lines = data.items.map((item) => `• ${item.quantity} x ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
@@ -126,6 +129,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   }
   async function sendSaleEmail(data: Detail) {
+    if (!planAccess.require("emailAndWhatsApp", "Tickets por correo")) return;
     const lines = data.items.map((item) => `${item.quantity} × ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} — ${money.format(item.lineTotal)}`).join("\n");
     const content = `Folio: ${data.folio}\nFecha: ${new Date(data.soldAtUtc).toLocaleString("es-MX")}\nCliente: ${data.customer}\n\n${lines}\n\nTOTAL: ${money.format(data.total)}\n\n${ticketMessage || "¡Gracias por tu compra!"}`;
     try {
@@ -136,6 +140,7 @@ export function SalesPage({ session, businessName, logoUrl, ticketMessage }: { s
     }
   }
   async function sendCutEmail(report: CashReport) {
+    if (!planAccess.require("emailAndWhatsApp", "Cortes de caja por correo")) return;
     const paymentLines = [...report.salePayments.map((x) => `Ventas · ${method(x.method)}: ${money.format(x.total)}`), ...report.layawayPayments.map((x) => `Apartados · ${method(x.method)}: ${money.format(x.total)}`)].join("\n");
     const content = `Sucursal: ${report.branch}\nResponsable: ${report.user}\nApertura: ${new Date(report.openedAtUtc).toLocaleString("es-MX")}\nCierre: ${report.closedAtUtc ? new Date(report.closedAtUtc).toLocaleString("es-MX") : "Caja abierta"}\n\nFondo inicial: ${money.format(report.openingAmount)}\nVentas: ${money.format(report.salesTotal)}\nApartados: ${money.format(report.layawayTotal)}\n${paymentLines}\n\nEsperado: ${money.format(report.expectedAmount)}${report.countedAmount !== null ? `\nContado: ${money.format(report.countedAmount)}\nDiferencia: ${money.format(report.differenceAmount ?? 0)}` : ""}`;
     try {

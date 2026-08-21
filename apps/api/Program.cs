@@ -205,17 +205,32 @@ platform.MapGet("/dashboard", async (VendemeFacilDbContext db, CancellationToken
     var tenants = await db.Tenants.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Select(x => new
     {
         x.Id, x.Name, x.Slug, x.PlanCode, x.SubscriptionStatus, x.TrialEndsAtUtc, x.CurrentPeriodEndsAtUtc,
-        x.SubscriptionNotes, x.IsActive, x.CreatedAtUtc,
+        x.SubscriptionNotes, x.IsActive, x.CreatedAtUtc, x.BusinessType,
         Users = db.Users.IgnoreQueryFilters().Count(u => u.TenantId == x.Id && u.IsActive),
         Branches = db.Branches.IgnoreQueryFilters().Count(b => b.TenantId == x.Id && b.IsActive),
         Products = db.ProductVariants.IgnoreQueryFilters().Count(p => p.TenantId == x.Id && p.IsActive),
-        LastSaleAtUtc = db.Sales.IgnoreQueryFilters().Where(s => s.TenantId == x.Id).Max(s => (DateTimeOffset?)s.SoldAtUtc)
+        LastSaleAtUtc = db.Sales.IgnoreQueryFilters().Where(s => s.TenantId == x.Id).Max(s => (DateTimeOffset?)s.SoldAtUtc),
+        ActivationSteps = (!string.IsNullOrEmpty(x.BusinessType) && !string.IsNullOrEmpty(x.Phone) ? 1 : 0)
+            + (db.ProductVariants.IgnoreQueryFilters().Any(p => p.TenantId == x.Id && p.IsActive) ? 1 : 0)
+            + (db.InventoryBalances.IgnoreQueryFilters().Any(b => b.TenantId == x.Id && b.Quantity > 0) ? 1 : 0)
+            + (db.CashSessions.IgnoreQueryFilters().Any(c => c.TenantId == x.Id) ? 1 : 0)
+            + (db.Sales.IgnoreQueryFilters().Any(s => s.TenantId == x.Id && s.Status == SaleStatus.Completed) ? 1 : 0)
+            + (x.PrintingConfigured ? 1 : 0)
+            + (db.Users.IgnoreQueryFilters().Count(u => u.TenantId == x.Id && u.IsActive) > 1 ? 1 : 0)
     }).ToListAsync(cancellationToken);
     var leads = await db.ProspectLeads.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(100).ToListAsync(cancellationToken);
+    var changeRequests = await db.SubscriptionEvents.AsNoTracking().Where(x => x.Type == "PlanChangeRequested").OrderByDescending(x => x.CreatedAtUtc).Take(50)
+        .Join(db.Tenants.AsNoTracking(), x => x.TenantId, x => x.Id, (history, tenant) => new { history.Id, history.TenantId, BusinessName = tenant.Name, history.Description, history.CreatedAtUtc }).ToListAsync(cancellationToken);
     return Results.Ok(new
     {
         Summary = new { Total = tenants.Count, Active = tenants.Count(x => x.IsActive), Trials = tenants.Count(x => x.SubscriptionStatus == "Trial" && x.TrialEndsAtUtc >= now), PastDue = tenants.Count(x => x.SubscriptionStatus == "PastDue"), NewLeads = leads.Count(x => x.Status == "New") },
-        Tenants = tenants, Leads = leads
+        Tenants = tenants, Leads = leads,
+        FollowUps = new
+        {
+            TrialsExpiring = tenants.Where(x => x.SubscriptionStatus == "Trial" && x.TrialEndsAtUtc >= now && x.TrialEndsAtUtc <= now.AddDays(7)).Select(x => new { x.Id, x.Name, x.TrialEndsAtUtc }),
+            WithoutFirstSale = tenants.Where(x => x.LastSaleAtUtc == null && x.CreatedAtUtc <= now.AddDays(-2)).Select(x => new { x.Id, x.Name, x.CreatedAtUtc, x.ActivationSteps }),
+            PlanChangeRequests = changeRequests
+        }
     });
 });
 platform.MapPut("/tenants/{tenantId:guid}/subscription", async (Guid tenantId, UpdateTenantSubscriptionRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
@@ -227,9 +242,41 @@ platform.MapPut("/tenants/{tenantId:guid}/subscription", async (Guid tenantId, U
     if (tenant is null) return Results.NotFound();
     var prior = $"{tenant.PlanCode}/{tenant.SubscriptionStatus}";
     tenant.PlanCode = request.PlanCode; tenant.SubscriptionStatus = request.Status; tenant.TrialEndsAtUtc = request.TrialEndsAtUtc ?? tenant.TrialEndsAtUtc;
-    tenant.CurrentPeriodEndsAtUtc = request.CurrentPeriodEndsAtUtc; tenant.SubscriptionNotes = request.Notes?.Trim(); tenant.IsActive = request.IsActive;
+    tenant.CurrentPeriodEndsAtUtc = request.CurrentPeriodEndsAtUtc; tenant.SubscriptionNotes = request.Notes?.Trim();
+    tenant.IsActive = request.Status is "Suspended" or "Cancelled" ? false : request.IsActive;
     db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, Type = "SubscriptionUpdated", Description = $"{prior} → {tenant.PlanCode}/{tenant.SubscriptionStatus}. Acceso: {(tenant.IsActive ? "activo" : "bloqueado")}.", PerformedBy = "PlatformAdmin" });
     await db.SaveChangesAsync(cancellationToken); return Results.NoContent();
+});
+platform.MapPost("/tenants/{tenantId:guid}/subscription/adjust", async (Guid tenantId, AdjustTenantSubscriptionRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var tenant = await db.Tenants.SingleOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
+    if (tenant is null) return Results.NotFound();
+    var action = request.Action.Trim().ToLowerInvariant();
+    string description;
+    if (action == "add-days")
+    {
+        if (request.Days is null or < 1 or > 3650) return Results.BadRequest(new { title = "Indica entre 1 y 3650 dias." });
+        var isTrial = tenant.SubscriptionStatus == "Trial";
+        var currentEnd = isTrial ? tenant.TrialEndsAtUtc : tenant.CurrentPeriodEndsAtUtc ?? DateTimeOffset.UtcNow;
+        var newEnd = (currentEnd > DateTimeOffset.UtcNow ? currentEnd : DateTimeOffset.UtcNow).AddDays(request.Days.Value);
+        if (isTrial) tenant.TrialEndsAtUtc = newEnd; else tenant.CurrentPeriodEndsAtUtc = newEnd;
+        description = $"Se agregaron {request.Days} dias. Nueva vigencia: {newEnd:yyyy-MM-dd}.";
+    }
+    else if (action == "suspend")
+    {
+        tenant.SubscriptionStatus = "Suspended"; tenant.IsActive = false;
+        description = "Membresia suspendida manualmente y acceso bloqueado.";
+    }
+    else if (action == "activate")
+    {
+        tenant.SubscriptionStatus = tenant.CurrentPeriodEndsAtUtc.HasValue ? "Active" : "Trial"; tenant.IsActive = true;
+        description = $"Membresia activada manualmente como {tenant.SubscriptionStatus}.";
+    }
+    else return Results.BadRequest(new { title = "Accion no valida." });
+    if (!string.IsNullOrWhiteSpace(request.Notes)) description += $" Nota: {request.Notes.Trim()}";
+    db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, Type = "ManualAdjustment", Description = description, PerformedBy = "PlatformAdmin" });
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new { tenant.SubscriptionStatus, tenant.IsActive, tenant.TrialEndsAtUtc, tenant.CurrentPeriodEndsAtUtc });
 });
 platform.MapGet("/tenants/{tenantId:guid}", async (Guid tenantId, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
@@ -322,7 +369,7 @@ auth.MapPost("/register", async (
     var suffix = 1;
     while (await db.Tenants.AnyAsync(x => x.Slug == slug, cancellationToken)) slug = $"{baseSlug}-{++suffix}";
 
-    var selectedPlan = new[] { "esencial", "negocio", "pro" }.Contains(request.PlanCode?.Trim().ToLowerInvariant()) ? request.PlanCode!.Trim().ToLowerInvariant() : "negocio";
+    var selectedPlan = "esencial";
     var tenant = new Tenant { Name = request.BusinessName.Trim(), Slug = slug, PlanCode = selectedPlan, SubscriptionStatus = "Trial", TrialEndsAtUtc = DateTimeOffset.UtcNow.AddDays(30), AcquisitionSource = request.AcquisitionSource?.Trim(), AcquisitionCampaign = request.AcquisitionCampaign?.Trim(), FacebookClickId = request.FacebookClickId?.Trim(), GoogleClickId = request.GoogleClickId?.Trim() };
     tenantContext.SetTenant(tenant.Id);
     db.Tenants.Add(tenant);
@@ -488,7 +535,7 @@ api.MapGet("/subscription", async (ITenantContext tenantContext, VendemeFacilDbC
     var tenant = await db.Tenants.AsNoTracking().SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
     var payments = await db.SubscriptionPayments.AsNoTracking().Where(x => x.TenantId == tenant.Id).OrderByDescending(x => x.PaidAtUtc).Take(24).ToListAsync(cancellationToken);
     var effectiveEnd = tenant.SubscriptionStatus == "Trial" ? tenant.TrialEndsAtUtc : tenant.CurrentPeriodEndsAtUtc;
-    return Results.Ok(new { tenant.PlanCode, tenant.SubscriptionStatus, tenant.TrialEndsAtUtc, tenant.CurrentPeriodEndsAtUtc, GraceEndsAtUtc = effectiveEnd?.AddDays(7), Payments = payments });
+    return Results.Ok(new { tenant.PlanCode, tenant.SubscriptionStatus, tenant.TrialEndsAtUtc, tenant.CurrentPeriodEndsAtUtc, GraceEndsAtUtc = effectiveEnd?.AddDays(7), Capabilities = PlanCatalog.Get(tenant.PlanCode), Payments = payments });
 });
 api.MapPost("/subscription/change-request", async (RequestPlanChangeRequest request, HttpContext context, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
@@ -500,6 +547,81 @@ api.MapPost("/subscription/change-request", async (RequestPlanChangeRequest requ
     await db.SaveChangesAsync(cancellationToken); return Results.Accepted(value: new { message = "Recibimos tu solicitud. Nuestro equipo te contactará para confirmar el cambio." });
 });
 
+api.MapGet("/onboarding", async (ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var id = tenantContext.TenantId;
+    var tenant = await db.Tenants.AsNoTracking().SingleAsync(x => x.Id == id, cancellationToken);
+    var productCount = await db.ProductVariants.CountAsync(x => x.IsActive, cancellationToken);
+    var inventoryReady = await db.InventoryBalances.AnyAsync(x => x.Quantity > 0, cancellationToken);
+    var cashOpened = await db.CashSessions.AnyAsync(cancellationToken);
+    var firstSale = await db.Sales.AnyAsync(x => x.Status == SaleStatus.Completed, cancellationToken);
+    var invitedUser = await db.Users.CountAsync(x => x.IsActive, cancellationToken) > 1;
+    var demoCount = await db.Products.CountAsync(x => x.IsDemoData, cancellationToken);
+    var steps = new[]
+    {
+        new { Code = "profile", Label = "Completa los datos de tu negocio", Completed = !string.IsNullOrWhiteSpace(tenant.BusinessType) && !string.IsNullOrWhiteSpace(tenant.Phone) },
+        new { Code = "product", Label = "Crea o importa tu primer producto", Completed = productCount > 0 },
+        new { Code = "inventory", Label = "Registra inventario inicial", Completed = inventoryReady },
+        new { Code = "cash", Label = "Abre tu primera caja", Completed = cashOpened },
+        new { Code = "sale", Label = "Realiza tu primera venta", Completed = firstSale },
+        new { Code = "printing", Label = "Configura la impresión", Completed = tenant.PrintingConfigured },
+        new { Code = "user", Label = "Invita a un usuario", Completed = invitedUser }
+    };
+    return Results.Ok(new { tenant.BusinessType, tenant.Phone, tenant.Address, tenant.LogoUrl, tenant.OnboardingDismissed, DemoProductCount = demoCount, CompletedSteps = steps.Count(x => x.Completed), TotalSteps = steps.Length, Steps = steps });
+});
+api.MapPut("/onboarding/profile", async (SaveOnboardingProfileRequest request, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var allowed = new[] { "boutique", "calzado", "papeleria", "regalos", "otro" };
+    var type = request.BusinessType.Trim().ToLowerInvariant();
+    if (!allowed.Contains(type)) return Results.BadRequest(new { title = "Selecciona un giro válido." });
+    var tenant = await db.Tenants.SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
+    tenant.BusinessType = type; tenant.Phone = request.Phone?.Trim(); tenant.Address = request.Address?.Trim(); tenant.LogoUrl = request.LogoUrl?.Trim();
+    await db.SaveChangesAsync(cancellationToken); return Results.NoContent();
+});
+api.MapPut("/onboarding/preferences", async (UpdateOnboardingPreferenceRequest request, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var tenant = await db.Tenants.SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
+    if (request.PrintingConfigured.HasValue) tenant.PrintingConfigured = request.PrintingConfigured.Value;
+    if (request.Dismissed.HasValue) tenant.OnboardingDismissed = request.Dismissed.Value;
+    await db.SaveChangesAsync(cancellationToken); return Results.NoContent();
+});
+api.MapPost("/onboarding/demo-catalog", async (CreateDemoCatalogRequest request, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    if (await db.Products.AnyAsync(x => x.IsDemoData, cancellationToken)) return Results.Conflict(new { title = "Ya existe un catálogo de demostración." });
+    var type = request.BusinessType.Trim().ToLowerInvariant();
+    var templates = type switch
+    {
+        "boutique" => new[] { ("Blusa básica", "Mediana / Beige", "DEMO-BLU-M", 180m, 349m, 8m), ("Vestido casual", "Grande / Negro", "DEMO-VES-G", 320m, 649m, 5m), ("Pantalón mezclilla", "Talla 28", "DEMO-PAN-28", 280m, 559m, 6m) },
+        "calzado" => new[] { ("Tenis urbano", "Número 25 / Blanco", "DEMO-TEN-25", 390m, 799m, 5m), ("Zapatilla clásica", "Número 24 / Negro", "DEMO-ZAP-24", 340m, 699m, 4m), ("Sandalia", "Número 23 / Café", "DEMO-SAN-23", 210m, 449m, 6m) },
+        "papeleria" => new[] { ("Cuaderno profesional", "Cuadro grande", "DEMO-CUA-01", 42m, 69m, 20m), ("Bolígrafo azul", "Punto mediano", "DEMO-BOL-AZ", 6m, 12m, 50m), ("Papel carta", "Paquete 500 hojas", "DEMO-PAP-500", 95m, 139m, 10m) },
+        _ => new[] { ("Producto muestra A", "Presentación única", "DEMO-001", 50m, 99m, 10m), ("Producto muestra B", "Presentación única", "DEMO-002", 80m, 159m, 8m), ("Producto muestra C", "Presentación única", "DEMO-003", 120m, 239m, 6m) }
+    };
+    var branch = await db.Branches.OrderByDescending(x => x.IsMain).FirstAsync(cancellationToken);
+    var category = await db.Categories.FirstOrDefaultAsync(x => x.Name == "Productos de demostración", cancellationToken);
+    if (category is null) { category = new Category { Name = "Productos de demostración" }; db.Categories.Add(category); }
+    foreach (var item in templates)
+    {
+        var product = new Product { Name = item.Item1, CategoryId = category.Id, IsDemoData = true };
+        var variant = new ProductVariant { ProductId = product.Id, Name = item.Item2, Sku = item.Item3, Cost = item.Item4, Price = item.Item5, MinimumStock = 2 };
+        product.Variants.Add(variant); db.Products.Add(product);
+        db.InventoryBalances.Add(new InventoryBalance { BranchId = branch.Id, ProductVariantId = variant.Id, Quantity = item.Item6, AverageCost = item.Item4 });
+        db.InventoryMovements.Add(new InventoryMovement { BranchId = branch.Id, ProductVariantId = variant.Id, Type = InventoryMovementType.InitialStock, Quantity = item.Item6, UnitCost = item.Item4, Note = "Datos de demostración" });
+    }
+    await db.SaveChangesAsync(cancellationToken); return Results.Created("/api/v1/onboarding/demo-catalog", new { Products = templates.Length });
+});
+api.MapDelete("/onboarding/demo-catalog", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var productIds = await db.Products.Where(x => x.IsDemoData).Select(x => x.Id).ToListAsync(cancellationToken);
+    var variantIds = await db.ProductVariants.Where(x => productIds.Contains(x.ProductId)).Select(x => x.Id).ToListAsync(cancellationToken);
+    if (await db.SaleItems.AnyAsync(x => variantIds.Contains(x.ProductVariantId), cancellationToken) || await db.LayawayItems.AnyAsync(x => variantIds.Contains(x.ProductVariantId), cancellationToken))
+        return Results.Conflict(new { title = "No se pueden eliminar ejemplos que ya forman parte de una venta o apartado. Puedes desactivarlos desde Productos." });
+    await db.InventoryMovements.Where(x => variantIds.Contains(x.ProductVariantId)).ExecuteDeleteAsync(cancellationToken);
+    await db.InventoryBalances.Where(x => variantIds.Contains(x.ProductVariantId)).ExecuteDeleteAsync(cancellationToken);
+    await db.ProductVariants.Where(x => variantIds.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
+    await db.Products.Where(x => productIds.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
+    return Results.NoContent();
+});
+
 api.MapPost("/documents/email", async (
     SendDocumentEmailRequest request,
     ITenantContext tenantContext,
@@ -507,6 +629,9 @@ api.MapPost("/documents/email", async (
     VendemeFacilDbContext db,
     CancellationToken cancellationToken) =>
 {
+    var planCode = await db.Tenants.AsNoTracking().Where(x => x.Id == tenantContext.TenantId).Select(x => x.PlanCode).SingleAsync(cancellationToken);
+    if (!PlanCatalog.Get(planCode).EmailAndWhatsApp)
+        return Results.Json(new { title = "El envío por correo está disponible desde el plan Negocio.", requiredPlan = "negocio" }, statusCode: StatusCodes.Status403Forbidden);
     var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["sale-ticket"] = "Ticket de venta",
@@ -532,8 +657,11 @@ api.MapPost("/documents/email", async (
     return Results.Accepted(value: new { message = $"{label} enviado a {email}." });
 }).RequireRateLimiting("document-email");
 
-api.MapPost("/qz/sign", (QzSignRequest request, IConfiguration configuration) =>
+api.MapPost("/qz/sign", async (QzSignRequest request, IConfiguration configuration, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
+    var planCode = await db.Tenants.AsNoTracking().Where(x => x.Id == tenantContext.TenantId).Select(x => x.PlanCode).SingleAsync(cancellationToken);
+    if (!PlanCatalog.Get(planCode).SilentPrinting)
+        return Results.Json(new { title = "La impresión silenciosa está disponible desde el plan Negocio.", requiredPlan = "negocio" }, statusCode: StatusCodes.Status403Forbidden);
     if (string.IsNullOrWhiteSpace(request.Request) || request.Request.Length > 100_000)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["request"] = ["La solicitud de impresion no es valida."] });
 
@@ -561,11 +689,15 @@ api.MapPost("/qz/sign", (QzSignRequest request, IConfiguration configuration) =>
 var userAdmin = api.MapGroup("/users").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
 userAdmin.MapGet("/", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
     Results.Ok(await db.Users.AsNoTracking().OrderBy(x => x.DisplayName).Select(x => new { x.Id, x.DisplayName, x.Email, Role = x.Role.ToString(), x.CanViewCosts, x.IsActive }).ToListAsync(cancellationToken)));
-userAdmin.MapPost("/", async (CreateUserRequest request, IPasswordHasher<AppUser> passwordHasher, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+userAdmin.MapPost("/", async (CreateUserRequest request, ITenantContext tenantContext, IPasswordHasher<AppUser> passwordHasher, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.DisplayName) || !request.Email.Contains('@') || request.Password.Length < 8 || !Enum.TryParse<UserRole>(request.Role, true, out var role))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["user"] = ["Revisa nombre, correo, contraseña y rol."] });
     var email = request.Email.Trim().ToLowerInvariant();
+    var planCode = await db.Tenants.AsNoTracking().Where(x => x.Id == tenantContext.TenantId).Select(x => x.PlanCode).SingleAsync(cancellationToken);
+    var capabilities = PlanCatalog.Get(planCode);
+    if (await db.Users.CountAsync(x => x.IsActive, cancellationToken) >= capabilities.MaxUsers)
+        return Results.Json(new { title = $"El plan {capabilities.Name} permite hasta {capabilities.MaxUsers} usuario(s). Cambia al plan Negocio para agregar más.", requiredPlan = "negocio" }, statusCode: StatusCodes.Status403Forbidden);
     if (await db.Users.AnyAsync(x => x.Email == email, cancellationToken)) return Results.Conflict(new { title = "Ya existe un usuario con ese correo." });
     var user = new AppUser { DisplayName = request.DisplayName.Trim(), Email = email, Role = role, CanViewCosts = request.CanViewCosts };
     user.PasswordHash = passwordHasher.HashPassword(user, request.Password); db.Users.Add(user); await db.SaveChangesAsync(cancellationToken);
@@ -1281,6 +1413,15 @@ api.MapGet("/dashboard", async (HttpContext context, VendemeFacilDbContext db, C
 });
 
 var reportsAdmin = api.MapGroup("/reports").RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Owner), nameof(UserRole.Administrator)));
+reportsAdmin.AddEndpointFilter(async (context, next) =>
+{
+    var tenant = context.HttpContext.RequestServices.GetRequiredService<ITenantContext>();
+    var db = context.HttpContext.RequestServices.GetRequiredService<VendemeFacilDbContext>();
+    var planCode = await db.Tenants.AsNoTracking().Where(x => x.Id == tenant.TenantId).Select(x => x.PlanCode).SingleAsync(context.HttpContext.RequestAborted);
+    return PlanCatalog.Get(planCode).FullReports
+        ? await next(context)
+        : Results.Json(new { title = "Los reportes completos están disponibles desde el plan Negocio.", requiredPlan = "negocio" }, statusCode: StatusCodes.Status403Forbidden);
+});
 reportsAdmin.MapPost("/sales/backfill-costs", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
 {
     var pendingLines = await db.SaleItems

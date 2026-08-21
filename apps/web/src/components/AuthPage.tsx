@@ -1,6 +1,7 @@
 import { ArrowLeft, Check, Eye, EyeOff, LockKeyhole, Mail, Store } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { apiRequest, AuthSession, saveSession } from "../lib/api";
+import { trackMarketing } from "../lib/marketing";
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
@@ -10,7 +11,7 @@ function resetTokenFromLocation() {
   return params.get("token") ?? "";
 }
 
-export function AuthPage({ onAuthenticated, initialMode = "login", initialPlan = "negocio", onBack }: { onAuthenticated: (session: AuthSession) => void; initialMode?: "login" | "register"; initialPlan?: string; onBack?: () => void }) {
+export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { onAuthenticated: (session: AuthSession) => void; initialMode?: "login" | "register"; onBack?: () => void }) {
   const [resetToken] = useState(resetTokenFromLocation);
   const [mode, setMode] = useState<AuthMode>(() => resetTokenFromLocation() ? "reset" : initialMode);
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +35,7 @@ export function AuthPage({ onAuthenticated, initialMode = "login", initialPlan =
         ? (() => { const params = new URLSearchParams(window.location.search); return { businessName: data.get("businessName"), ownerName: data.get("ownerName"), email: data.get("email"), password: data.get("password"), planCode: data.get("planCode"), acquisitionSource: params.get("utm_source"), acquisitionCampaign: params.get("utm_campaign"), facebookClickId: params.get("fbclid"), googleClickId: params.get("gclid") }; })()
         : { businessSlug: data.get("businessSlug"), email: data.get("email"), password: data.get("password") };
       const session = await apiRequest<AuthSession>(mode === "register" ? "/api/auth/register" : "/api/auth/login", { method: "POST", body: JSON.stringify(body) });
+      if (mode === "register") trackMarketing("TrialStarted", { plan: "esencial" });
       saveSession(session);
       onAuthenticated(session);
     } catch (reason) {
@@ -97,7 +99,7 @@ export function AuthPage({ onAuthenticated, initialMode = "login", initialPlan =
         <h2>{title}</h2>
         <p>{mode === "forgot" ? "Te enviaremos un enlace válido durante 30 minutos." : mode === "reset" ? "Elige una nueva contraseña para tu cuenta." : mode === "register" ? "Tu primera sucursal estará lista en menos de un minuto." : "Ingresa para continuar con tu negocio."}</p>
 
-        {mode === "register" && <><label>Plan para iniciar<select name="planCode" defaultValue={initialPlan}><option value="esencial">Esencial · $199 al mes</option><option value="negocio">Negocio · $499 al mes</option><option value="pro">Pro · $799 al mes</option></select></label><small className="trial-copy">Tendrás 30 días de prueba. No necesitas tarjeta.</small><label>Nombre del negocio<div className="input-with-icon"><Store /><input name="businessName" required placeholder="Mi tienda" /></div></label><label>Tu nombre<div className="input-with-icon"><Store /><input name="ownerName" required placeholder="Nombre del propietario" /></div></label></>}
+        {mode === "register" && <><label>Plan de prueba<select name="planCode" defaultValue="esencial" disabled><option value="esencial">Esencial · $199 al mes</option></select></label><small className="trial-copy">Comenzarás con 30 días del plan Esencial. No necesitas tarjeta y podrás solicitar otro plan cuando quieras.</small><label>Nombre del negocio<div className="input-with-icon"><Store /><input name="businessName" required placeholder="Mi tienda" /></div></label><label>Tu nombre<div className="input-with-icon"><Store /><input name="ownerName" required placeholder="Nombre del propietario" /></div></label></>}
         {(mode === "login" || mode === "forgot") && <label>Identificador del negocio<div className="input-with-icon"><Store /><input name="businessSlug" required placeholder="mi-tienda" autoComplete="organization" /></div></label>}
         {mode !== "reset" && <label>Correo electrónico<div className="input-with-icon"><Mail /><input name="email" type="email" required placeholder="tu@negocio.com" autoComplete="email" /></div></label>}
         {(mode === "login" || mode === "register") && <label>Contraseña<div className="input-with-icon"><LockKeyhole /><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="Mínimo 8 caracteres" autoComplete={mode === "register" ? "new-password" : "current-password"} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label="Mostrar contraseña">{showPassword ? <EyeOff /> : <Eye />}</button></div></label>}
