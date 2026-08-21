@@ -10,7 +10,7 @@ function resetTokenFromLocation() {
   return params.get("token") ?? "";
 }
 
-export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { onAuthenticated: (session: AuthSession) => void; initialMode?: "login" | "register"; onBack?: () => void }) {
+export function AuthPage({ onAuthenticated, initialMode = "login", initialPlan = "negocio", onBack }: { onAuthenticated: (session: AuthSession) => void; initialMode?: "login" | "register"; initialPlan?: string; onBack?: () => void }) {
   const [resetToken] = useState(resetTokenFromLocation);
   const [mode, setMode] = useState<AuthMode>(() => resetTokenFromLocation() ? "reset" : initialMode);
   const [showPassword, setShowPassword] = useState(false);
@@ -31,7 +31,7 @@ export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { o
     const data = new FormData(event.currentTarget);
     try {
       const body = mode === "register"
-        ? { businessName: data.get("businessName"), ownerName: data.get("ownerName"), email: data.get("email"), password: data.get("password") }
+        ? (() => { const params = new URLSearchParams(window.location.search); return { businessName: data.get("businessName"), ownerName: data.get("ownerName"), email: data.get("email"), password: data.get("password"), planCode: data.get("planCode"), acquisitionSource: params.get("utm_source"), acquisitionCampaign: params.get("utm_campaign"), facebookClickId: params.get("fbclid"), googleClickId: params.get("gclid") }; })()
         : { businessSlug: data.get("businessSlug"), email: data.get("email"), password: data.get("password") };
       const session = await apiRequest<AuthSession>(mode === "register" ? "/api/auth/register" : "/api/auth/login", { method: "POST", body: JSON.stringify(body) });
       saveSession(session);
@@ -87,7 +87,7 @@ export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { o
   return <main className="auth-page">
     <section className="auth-brand-panel">
       <div className="auth-brand"><div className="brand-mark">VF</div><strong>Véndeme Fácil</strong></div>
-      <div className="auth-message"><span className="auth-kicker">TU NEGOCIO EN ORDEN</span><h1>Vende fácil.<br />Controla todo.</h1><p>Inventario, ventas y caja en un solo lugar. Sin complicaciones.</p></div>
+      <div className="auth-message"><span className="auth-kicker">TU TIENDA EN ORDEN</span><h1>Vende fácil.<br />Controla mejor.</h1><p>Punto de venta e inventario para comercios minoristas. Sin complicaciones.</p></div>
       <div className="auth-benefits"><span><Check />Configuración rápida</span><span><Check />Funciona en cualquier dispositivo</span><span><Check />Tus datos siempre separados y seguros</span></div>
     </section>
     <section className="auth-form-panel">
@@ -97,7 +97,7 @@ export function AuthPage({ onAuthenticated, initialMode = "login", onBack }: { o
         <h2>{title}</h2>
         <p>{mode === "forgot" ? "Te enviaremos un enlace válido durante 30 minutos." : mode === "reset" ? "Elige una nueva contraseña para tu cuenta." : mode === "register" ? "Tu primera sucursal estará lista en menos de un minuto." : "Ingresa para continuar con tu negocio."}</p>
 
-        {mode === "register" && <><label>Nombre del negocio<div className="input-with-icon"><Store /><input name="businessName" required placeholder="Mi tienda" /></div></label><label>Tu nombre<div className="input-with-icon"><Store /><input name="ownerName" required placeholder="Nombre del propietario" /></div></label></>}
+        {mode === "register" && <><label>Plan para iniciar<select name="planCode" defaultValue={initialPlan}><option value="esencial">Esencial · $199 al mes</option><option value="negocio">Negocio · $499 al mes</option><option value="pro">Pro · $799 al mes</option></select></label><small className="trial-copy">Tendrás 30 días de prueba. No necesitas tarjeta.</small><label>Nombre del negocio<div className="input-with-icon"><Store /><input name="businessName" required placeholder="Mi tienda" /></div></label><label>Tu nombre<div className="input-with-icon"><Store /><input name="ownerName" required placeholder="Nombre del propietario" /></div></label></>}
         {(mode === "login" || mode === "forgot") && <label>Identificador del negocio<div className="input-with-icon"><Store /><input name="businessSlug" required placeholder="mi-tienda" autoComplete="organization" /></div></label>}
         {mode !== "reset" && <label>Correo electrónico<div className="input-with-icon"><Mail /><input name="email" type="email" required placeholder="tu@negocio.com" autoComplete="email" /></div></label>}
         {(mode === "login" || mode === "register") && <label>Contraseña<div className="input-with-icon"><LockKeyhole /><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="Mínimo 8 caracteres" autoComplete={mode === "register" ? "new-password" : "current-password"} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label="Mostrar contraseña">{showPassword ? <EyeOff /> : <Eye />}</button></div></label>}

@@ -9,6 +9,21 @@ namespace VendemeFacil.Api.Infrastructure;
 
 public sealed class JwtTokenService(IConfiguration configuration)
 {
+    public object CreatePlatformAdmin(string email)
+    {
+        var expires = DateTimeOffset.UtcNow.AddHours(4);
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, email),
+            new Claim(JwtRegisteredClaimNames.Email, email),
+            new Claim(ClaimTypes.Name, "Administración Véndeme Fácil"),
+            new Claim(ClaimTypes.Role, "PlatformAdmin"),
+            new Claim("platform_admin", "true")
+        };
+        var token = CreateToken(claims, expires);
+        return new { AccessToken = token, ExpiresAtUtc = expires, Email = email };
+    }
+
     public AuthResponse Create(Tenant tenant, AppUser user)
     {
         var expires = DateTimeOffset.UtcNow.AddHours(8);
@@ -22,18 +37,18 @@ public sealed class JwtTokenService(IConfiguration configuration)
             ,new Claim("can_view_costs", user.CanViewCosts.ToString().ToLowerInvariant()),
             new Claim("security_version", user.SecurityVersion.ToString())
         };
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]
-            ?? throw new InvalidOperationException("Jwt:Key is not configured.")));
-        var token = new JwtSecurityToken(
-            issuer: configuration["Jwt:Issuer"],
-            audience: configuration["Jwt:Audience"],
-            claims: claims,
-            expires: expires.UtcDateTime,
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
-
         return new AuthResponse(
-            new JwtSecurityTokenHandler().WriteToken(token),
+            CreateToken(claims, expires),
             expires,
             new UserSession(user.Id, tenant.Id, tenant.Name, tenant.Slug, user.DisplayName, user.Email, user.Role.ToString(), user.CanViewCosts));
+    }
+
+    private string CreateToken(IEnumerable<Claim> claims, DateTimeOffset expires)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]
+            ?? throw new InvalidOperationException("Jwt:Key is not configured.")));
+        var token = new JwtSecurityToken(configuration["Jwt:Issuer"], configuration["Jwt:Audience"], claims,
+            expires: expires.UtcDateTime, signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VendemeFacil.Api.Infrastructure;
 
@@ -11,9 +12,11 @@ using VendemeFacil.Api.Infrastructure;
 namespace VendemeFacil.Api.Infrastructure.Migrations
 {
     [DbContext(typeof(VendemeFacilDbContext))]
-    partial class VendemeFacilDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260820233218_AddTenantSubscriptions")]
+    partial class AddTenantSubscriptions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -841,90 +844,6 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                     b.ToTable("SalePayments");
                 });
 
-            modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionEvent", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<string>("PerformedBy")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "CreatedAtUtc");
-
-                    b.ToTable("SubscriptionEvents");
-                });
-
-            modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionPayment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Method")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTimeOffset>("PaidAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<DateTimeOffset>("PeriodEndsAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<DateTimeOffset>("PeriodStartsAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("Reference")
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("datetimeoffset");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "PaidAtUtc");
-
-                    b.ToTable("SubscriptionPayments");
-                });
-
             modelBuilder.Entity("VendemeFacil.Api.Domain.Tenant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -935,14 +854,6 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(7)
                         .HasColumnType("nvarchar(7)");
-
-                    b.Property<string>("AcquisitionCampaign")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("AcquisitionSource")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)");
 
                     b.Property<string>("Address")
                         .HasMaxLength(300)
@@ -974,14 +885,6 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset?>("CurrentPeriodEndsAtUtc")
                         .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("FacebookClickId")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<string>("GoogleClickId")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("HoverColor")
                         .IsRequired()
@@ -1268,24 +1171,6 @@ namespace VendemeFacil.Api.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Sale");
-                });
-
-            modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionEvent", b =>
-                {
-                    b.HasOne("VendemeFacil.Api.Domain.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("VendemeFacil.Api.Domain.SubscriptionPayment", b =>
-                {
-                    b.HasOne("VendemeFacil.Api.Domain.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("VendemeFacil.Api.Domain.Layaway", b =>

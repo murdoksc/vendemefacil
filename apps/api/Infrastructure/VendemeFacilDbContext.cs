@@ -12,6 +12,8 @@ public sealed class VendemeFacilDbContext(
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<ProspectLead> ProspectLeads => Set<ProspectLead>();
+    public DbSet<SubscriptionPayment> SubscriptionPayments => Set<SubscriptionPayment>();
+    public DbSet<SubscriptionEvent> SubscriptionEvents => Set<SubscriptionEvent>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
@@ -45,6 +47,30 @@ public sealed class VendemeFacilDbContext(
             entity.Property(x => x.Phone).HasMaxLength(30);
             entity.Property(x => x.Address).HasMaxLength(300);
             entity.Property(x => x.TicketMessage).HasMaxLength(300);
+            entity.Property(x => x.PlanCode).HasMaxLength(30);
+            entity.Property(x => x.SubscriptionStatus).HasMaxLength(30);
+            entity.Property(x => x.SubscriptionNotes).HasMaxLength(1000);
+            entity.Property(x => x.AcquisitionSource).HasMaxLength(120);
+            entity.Property(x => x.AcquisitionCampaign).HasMaxLength(200);
+            entity.Property(x => x.FacebookClickId).HasMaxLength(300);
+            entity.Property(x => x.GoogleClickId).HasMaxLength(300);
+        });
+        modelBuilder.Entity<SubscriptionPayment>(entity =>
+        {
+            entity.HasIndex(x => new { x.TenantId, x.PaidAtUtc });
+            entity.Property(x => x.Amount).HasPrecision(18, 2);
+            entity.Property(x => x.Method).HasMaxLength(50);
+            entity.Property(x => x.Reference).HasMaxLength(160);
+            entity.Property(x => x.Notes).HasMaxLength(1000);
+            entity.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<SubscriptionEvent>(entity =>
+        {
+            entity.HasIndex(x => new { x.TenantId, x.CreatedAtUtc });
+            entity.Property(x => x.Type).HasMaxLength(50);
+            entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.Property(x => x.PerformedBy).HasMaxLength(200);
+            entity.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Branch>().HasAlternateKey(x => new { x.TenantId, x.Id });

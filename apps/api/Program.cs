@@ -48,6 +48,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             OnTokenValidated = async context =>
             {
+                if (context.Principal?.FindFirstValue("platform_admin") == "true")
+                {
+                    var configuredEmail = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>()["PlatformAdmin:Email"]?.Trim().ToLowerInvariant();
+                    var tokenEmail = context.Principal.FindFirstValue(ClaimTypes.Email)?.Trim().ToLowerInvariant();
+                    if (string.IsNullOrWhiteSpace(configuredEmail) || tokenEmail != configuredEmail)
+                        context.Fail("Administrador de plataforma inválido.");
+                    return;
+                }
                 var userIdValue = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
                     ?? context.Principal?.FindFirstValue("sub");
                 var versionValue = context.Principal?.FindFirstValue("security_version");
@@ -79,6 +87,9 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
             AutoReplenishment = true
         }));
+    options.AddPolicy("platform-login", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+        { PermitLimit = 5, Window = TimeSpan.FromMinutes(15), QueueLimit = 0, AutoReplenishment = true }));
     options.AddPolicy("public-leads", context => RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         factory: _ => new FixedWindowRateLimiterOptions
@@ -174,6 +185,79 @@ app.MapGet("/api/qz/certificate", (IConfiguration configuration) =>
 
 var auth = app.MapGroup("/api/auth");
 
+auth.MapPost("/platform-login", (PlatformLoginRequest request, IConfiguration configuration, JwtTokenService tokens) =>
+{
+    var email = request.Email.Trim().ToLowerInvariant();
+    var configuredEmail = configuration["PlatformAdmin:Email"]?.Trim().ToLowerInvariant();
+    var configuredHash = configuration["PlatformAdmin:PasswordSha256"]?.Trim().ToUpperInvariant();
+    var suppliedHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Password)));
+    if (string.IsNullOrWhiteSpace(configuredEmail) || string.IsNullOrWhiteSpace(configuredHash)
+        || email != configuredEmail || configuredHash.Length != suppliedHash.Length
+        || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(configuredHash), Encoding.ASCII.GetBytes(suppliedHash)))
+        return Results.Unauthorized();
+    return Results.Ok(tokens.CreatePlatformAdmin(email));
+}).RequireRateLimiting("platform-login");
+
+var platform = app.MapGroup("/api/platform").RequireAuthorization(policy => policy.RequireRole("PlatformAdmin"));
+platform.MapGet("/dashboard", async (VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var now = DateTimeOffset.UtcNow;
+    var tenants = await db.Tenants.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Select(x => new
+    {
+        x.Id, x.Name, x.Slug, x.PlanCode, x.SubscriptionStatus, x.TrialEndsAtUtc, x.CurrentPeriodEndsAtUtc,
+        x.SubscriptionNotes, x.IsActive, x.CreatedAtUtc,
+        Users = db.Users.IgnoreQueryFilters().Count(u => u.TenantId == x.Id && u.IsActive),
+        Branches = db.Branches.IgnoreQueryFilters().Count(b => b.TenantId == x.Id && b.IsActive),
+        Products = db.ProductVariants.IgnoreQueryFilters().Count(p => p.TenantId == x.Id && p.IsActive),
+        LastSaleAtUtc = db.Sales.IgnoreQueryFilters().Where(s => s.TenantId == x.Id).Max(s => (DateTimeOffset?)s.SoldAtUtc)
+    }).ToListAsync(cancellationToken);
+    var leads = await db.ProspectLeads.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).Take(100).ToListAsync(cancellationToken);
+    return Results.Ok(new
+    {
+        Summary = new { Total = tenants.Count, Active = tenants.Count(x => x.IsActive), Trials = tenants.Count(x => x.SubscriptionStatus == "Trial" && x.TrialEndsAtUtc >= now), PastDue = tenants.Count(x => x.SubscriptionStatus == "PastDue"), NewLeads = leads.Count(x => x.Status == "New") },
+        Tenants = tenants, Leads = leads
+    });
+});
+platform.MapPut("/tenants/{tenantId:guid}/subscription", async (Guid tenantId, UpdateTenantSubscriptionRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var plans = new[] { "esencial", "negocio", "pro" };
+    var statuses = new[] { "Trial", "Active", "PastDue", "Suspended", "Cancelled" };
+    if (!plans.Contains(request.PlanCode) || !statuses.Contains(request.Status)) return Results.BadRequest(new { title = "Plan o estado inválido." });
+    var tenant = await db.Tenants.SingleOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
+    if (tenant is null) return Results.NotFound();
+    var prior = $"{tenant.PlanCode}/{tenant.SubscriptionStatus}";
+    tenant.PlanCode = request.PlanCode; tenant.SubscriptionStatus = request.Status; tenant.TrialEndsAtUtc = request.TrialEndsAtUtc ?? tenant.TrialEndsAtUtc;
+    tenant.CurrentPeriodEndsAtUtc = request.CurrentPeriodEndsAtUtc; tenant.SubscriptionNotes = request.Notes?.Trim(); tenant.IsActive = request.IsActive;
+    db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, Type = "SubscriptionUpdated", Description = $"{prior} → {tenant.PlanCode}/{tenant.SubscriptionStatus}. Acceso: {(tenant.IsActive ? "activo" : "bloqueado")}.", PerformedBy = "PlatformAdmin" });
+    await db.SaveChangesAsync(cancellationToken); return Results.NoContent();
+});
+platform.MapGet("/tenants/{tenantId:guid}", async (Guid tenantId, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var tenant = await db.Tenants.AsNoTracking().SingleOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
+    if (tenant is null) return Results.NotFound();
+    var owner = await db.Users.IgnoreQueryFilters().AsNoTracking().Where(x => x.TenantId == tenantId && x.Role == UserRole.Owner).Select(x => new { x.DisplayName, x.Email }).FirstOrDefaultAsync(cancellationToken);
+    var payments = await db.SubscriptionPayments.AsNoTracking().Where(x => x.TenantId == tenantId).OrderByDescending(x => x.PaidAtUtc).ToListAsync(cancellationToken);
+    var history = await db.SubscriptionEvents.AsNoTracking().Where(x => x.TenantId == tenantId).OrderByDescending(x => x.CreatedAtUtc).Take(100).ToListAsync(cancellationToken);
+    return Results.Ok(new { Tenant = tenant, Owner = owner, Payments = payments, History = history });
+});
+platform.MapPost("/tenants/{tenantId:guid}/payments", async (Guid tenantId, RecordSubscriptionPaymentRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    if (request.Amount <= 0 || request.PeriodEndsAtUtc <= request.PeriodStartsAtUtc) return Results.BadRequest(new { title = "Monto o periodo inválido." });
+    var tenant = await db.Tenants.SingleOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
+    if (tenant is null) return Results.NotFound();
+    var payment = new SubscriptionPayment { TenantId = tenantId, Amount = request.Amount, Method = request.Method.Trim(), Reference = request.Reference?.Trim(), PaidAtUtc = request.PaidAtUtc, PeriodStartsAtUtc = request.PeriodStartsAtUtc, PeriodEndsAtUtc = request.PeriodEndsAtUtc, Notes = request.Notes?.Trim() };
+    db.SubscriptionPayments.Add(payment); tenant.SubscriptionStatus = "Active"; tenant.CurrentPeriodEndsAtUtc = request.PeriodEndsAtUtc; tenant.IsActive = true;
+    db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenantId, Type = "PaymentRecorded", Description = $"Pago de {request.Amount:C2} registrado para el periodo {request.PeriodStartsAtUtc:yyyy-MM-dd} a {request.PeriodEndsAtUtc:yyyy-MM-dd}.", PerformedBy = "PlatformAdmin" });
+    await db.SaveChangesAsync(cancellationToken); return Results.Created($"/api/platform/tenants/{tenantId}/payments/{payment.Id}", new { payment.Id });
+});
+platform.MapPut("/leads/{leadId:guid}/status", async (Guid leadId, UpdateLeadStatusRequest request, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var statuses = new[] { "New", "Contacted", "DemoScheduled", "Trial", "Converted", "NotInterested" };
+    if (!statuses.Contains(request.Status)) return Results.BadRequest(new { title = "Estado inválido." });
+    var lead = await db.ProspectLeads.SingleOrDefaultAsync(x => x.Id == leadId, cancellationToken);
+    if (lead is null) return Results.NotFound(); lead.Status = request.Status; await db.SaveChangesAsync(cancellationToken); return Results.NoContent();
+});
+
 app.MapPost("/api/public/leads", async (
     CreateProspectLeadRequest request,
     OutboundEmailQueue emailQueue,
@@ -238,7 +322,8 @@ auth.MapPost("/register", async (
     var suffix = 1;
     while (await db.Tenants.AnyAsync(x => x.Slug == slug, cancellationToken)) slug = $"{baseSlug}-{++suffix}";
 
-    var tenant = new Tenant { Name = request.BusinessName.Trim(), Slug = slug };
+    var selectedPlan = new[] { "esencial", "negocio", "pro" }.Contains(request.PlanCode?.Trim().ToLowerInvariant()) ? request.PlanCode!.Trim().ToLowerInvariant() : "negocio";
+    var tenant = new Tenant { Name = request.BusinessName.Trim(), Slug = slug, PlanCode = selectedPlan, SubscriptionStatus = "Trial", TrialEndsAtUtc = DateTimeOffset.UtcNow.AddDays(30), AcquisitionSource = request.AcquisitionSource?.Trim(), AcquisitionCampaign = request.AcquisitionCampaign?.Trim(), FacebookClickId = request.FacebookClickId?.Trim(), GoogleClickId = request.GoogleClickId?.Trim() };
     tenantContext.SetTenant(tenant.Id);
     db.Tenants.Add(tenant);
     var owner = new AppUser
@@ -251,6 +336,7 @@ auth.MapPost("/register", async (
     owner.PasswordHash = passwordHasher.HashPassword(owner, request.Password);
     db.Users.Add(owner);
     db.Branches.Add(new Branch { Name = "Sucursal principal", IsMain = true });
+    db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenant.Id, Type = "TrialStarted", Description = $"Prueba de 30 días iniciada con el plan {selectedPlan}.", PerformedBy = owner.Email });
     await db.SaveChangesAsync(cancellationToken);
 
     return Results.Ok(tokens.Create(tenant, owner));
@@ -395,6 +481,23 @@ api.AddEndpointFilter(async (context, next) =>
             title: "Negocio no identificado",
             detail: "La solicitud debe incluir el encabezado X-Tenant-Id.",
             statusCode: StatusCodes.Status400BadRequest);
+});
+
+api.MapGet("/subscription", async (ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var tenant = await db.Tenants.AsNoTracking().SingleAsync(x => x.Id == tenantContext.TenantId, cancellationToken);
+    var payments = await db.SubscriptionPayments.AsNoTracking().Where(x => x.TenantId == tenant.Id).OrderByDescending(x => x.PaidAtUtc).Take(24).ToListAsync(cancellationToken);
+    var effectiveEnd = tenant.SubscriptionStatus == "Trial" ? tenant.TrialEndsAtUtc : tenant.CurrentPeriodEndsAtUtc;
+    return Results.Ok(new { tenant.PlanCode, tenant.SubscriptionStatus, tenant.TrialEndsAtUtc, tenant.CurrentPeriodEndsAtUtc, GraceEndsAtUtc = effectiveEnd?.AddDays(7), Payments = payments });
+});
+api.MapPost("/subscription/change-request", async (RequestPlanChangeRequest request, HttpContext context, ITenantContext tenantContext, VendemeFacilDbContext db, CancellationToken cancellationToken) =>
+{
+    var plan = request.PlanCode.Trim().ToLowerInvariant();
+    if (!new[] { "esencial", "negocio", "pro" }.Contains(plan)) return Results.BadRequest(new { title = "Plan inválido." });
+    var current = await db.Tenants.AsNoTracking().Where(x => x.Id == tenantContext.TenantId).Select(x => x.PlanCode).SingleAsync(cancellationToken);
+    if (current == plan) return Results.Conflict(new { title = "Ese ya es tu plan actual." });
+    db.SubscriptionEvents.Add(new SubscriptionEvent { TenantId = tenantContext.TenantId, Type = "PlanChangeRequested", Description = $"Solicitud de cambio de {current} a {plan}.", PerformedBy = context.User.FindFirstValue(ClaimTypes.Email) });
+    await db.SaveChangesAsync(cancellationToken); return Results.Accepted(value: new { message = "Recibimos tu solicitud. Nuestro equipo te contactará para confirmar el cambio." });
 });
 
 api.MapPost("/documents/email", async (

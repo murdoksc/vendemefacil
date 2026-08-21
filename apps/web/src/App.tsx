@@ -5,6 +5,7 @@ import {
   Boxes,
   ChevronDown,
   CircleDollarSign,
+  CreditCard,
   ClipboardPlus,
   CalendarClock,
   CheckCircle2,
@@ -39,6 +40,9 @@ import { CustomersPage } from "./components/CustomersPage";
 import { LayawaysPage } from "./components/LayawaysPage";
 import { LandingPage } from "./components/LandingPage";
 import { PrintingSetupPage } from "./components/PrintingSetupPage";
+import { SubscriptionPage } from "./components/SubscriptionPage";
+import { PlatformSubscriptionsPage } from "./components/PlatformSubscriptionsPage";
+import { PlatformAdminHub } from "./components/PlatformAdminHub";
 import { apiRequest, AuthSession, clearSession, loadSession } from "./lib/api";
 import { emailDocument } from "./lib/emailDocument";
 
@@ -94,6 +98,7 @@ function applyTheme(settings: BusinessSettings) {
 function App() {
   const [publicPath, setPublicPath] = useState(() => window.location.pathname);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [selectedPlan, setSelectedPlan] = useState("negocio");
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePage, setActivePage] = useState("Inicio");
   const [productCreateRequest, setProductCreateRequest] = useState(0);
@@ -187,13 +192,18 @@ function App() {
       onAccess={() => session ? navigatePublic("/") : (setAuthMode("login"), navigatePublic("/acceso"))}
     />;
 
+  if (publicPath === "/administracion")
+    return <PlatformAdminHub onBack={() => navigatePublic("/")} />;
+  if (publicPath === "/administracion/suscripciones")
+    return <PlatformSubscriptionsPage onBack={() => navigatePublic("/administracion")} />;
+
   if (!session) {
     if (publicPath === "/reset-password")
       return <AuthPage onAuthenticated={setSession} />;
     if (publicPath === "/acceso")
-      return <AuthPage onAuthenticated={setSession} initialMode={authMode} onBack={() => navigatePublic("/")} />;
+      return <AuthPage onAuthenticated={setSession} initialMode={authMode} initialPlan={selectedPlan} onBack={() => navigatePublic("/")} />;
     return <LandingPage
-      onAccess={(mode = "login") => { setAuthMode(mode); navigatePublic("/acceso"); }}
+      onAccess={(mode = "login", planCode) => { setAuthMode(mode); if (planCode) setSelectedPlan(planCode); navigatePublic("/acceso"); }}
       onPrinting={() => navigatePublic("/impresion")}
     />;
   }
@@ -308,6 +318,10 @@ function App() {
               >
                 <Settings />
                 Configuración
+              </button>
+              <button className={activePage === "Mi plan" ? "nav-item active" : "nav-item"} onClick={() => setActivePage("Mi plan")}>
+                <CreditCard />
+                Mi plan
               </button>
             </>
           )}
@@ -466,6 +480,8 @@ function App() {
           <ProductsPage session={session} openCreate={productCreateRequest} />
         ) : activePage === "Inventario" && isManager ? (
           <InventoryPage session={session} />
+        ) : activePage === "Mi plan" && isManager ? (
+          <SubscriptionPage session={session} />
         ) : activePage === "Configuración" && isManager ? (
           <BusinessSettingsPage
             session={session}

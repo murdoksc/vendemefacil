@@ -22,7 +22,36 @@ public sealed class Tenant : Entity
     public string? Address { get; set; }
     public string? TicketMessage { get; set; }
     public bool IsActive { get; set; } = true;
+    public string PlanCode { get; set; } = "negocio";
+    public string SubscriptionStatus { get; set; } = "Trial";
+    public DateTimeOffset TrialEndsAtUtc { get; set; } = DateTimeOffset.UtcNow.AddDays(30);
+    public DateTimeOffset? CurrentPeriodEndsAtUtc { get; set; }
+    public string? SubscriptionNotes { get; set; }
+    public string? AcquisitionSource { get; set; }
+    public string? AcquisitionCampaign { get; set; }
+    public string? FacebookClickId { get; set; }
+    public string? GoogleClickId { get; set; }
     public ICollection<Branch> Branches { get; set; } = [];
+}
+
+public sealed class SubscriptionPayment : Entity
+{
+    public Guid TenantId { get; set; }
+    public decimal Amount { get; set; }
+    public string Method { get; set; } = "Manual";
+    public string? Reference { get; set; }
+    public DateTimeOffset PaidAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset PeriodStartsAtUtc { get; set; }
+    public DateTimeOffset PeriodEndsAtUtc { get; set; }
+    public string? Notes { get; set; }
+}
+
+public sealed class SubscriptionEvent : Entity
+{
+    public Guid TenantId { get; set; }
+    public string Type { get; set; } = "Updated";
+    public string Description { get; set; } = string.Empty;
+    public string? PerformedBy { get; set; }
 }
 
 public sealed class Branch : TenantEntity

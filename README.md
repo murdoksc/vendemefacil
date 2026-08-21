@@ -1,6 +1,6 @@
 # Véndeme Fácil
 
-Punto de venta e inventario web, responsivo y multiempresa para negocios en México.
+Punto de venta e inventario web, responsivo y multiempresa para boutiques, zapaterías, tiendas de regalos, accesorios, papelerías y otros comercios minoristas en México.
 
 ## Estructura
 

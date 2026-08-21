@@ -1,7 +1,12 @@
 namespace VendemeFacil.Api.Contracts;
 
-public sealed record RegisterBusinessRequest(string BusinessName, string OwnerName, string Email, string Password);
+public sealed record RegisterBusinessRequest(string BusinessName, string OwnerName, string Email, string Password, string? PlanCode, string? AcquisitionSource, string? AcquisitionCampaign, string? FacebookClickId, string? GoogleClickId);
 public sealed record LoginRequest(string BusinessSlug, string Email, string Password);
+public sealed record PlatformLoginRequest(string Email, string Password);
+public sealed record UpdateTenantSubscriptionRequest(string PlanCode, string Status, DateTimeOffset? TrialEndsAtUtc, DateTimeOffset? CurrentPeriodEndsAtUtc, string? Notes, bool IsActive);
+public sealed record UpdateLeadStatusRequest(string Status);
+public sealed record RecordSubscriptionPaymentRequest(decimal Amount, string Method, string? Reference, DateTimeOffset PaidAtUtc, DateTimeOffset PeriodStartsAtUtc, DateTimeOffset PeriodEndsAtUtc, string? Notes);
+public sealed record RequestPlanChangeRequest(string PlanCode);
 public sealed record ForgotPasswordRequest(string BusinessSlug, string Email);
 public sealed record ResetPasswordRequest(string Token, string NewPassword, string ConfirmPassword);
 public sealed record CreateProspectLeadRequest(
