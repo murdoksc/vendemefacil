@@ -3,4 +3,7 @@
   <Folder Name="/apps/api/">
     <Project Path="apps/api/VendemeFacil.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/api/VendemeFacil.Api.Tests.csproj" />
+  </Folder>
 </Solution>

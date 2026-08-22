@@ -39,6 +39,9 @@ stages:
           - script: dotnet build VendemeFacil.slnx --configuration Release --no-restore
             displayName: Compilar API
 
+          - script: dotnet test tests/api/VendemeFacil.Api.Tests.csproj --configuration Release --no-build
+            displayName: Ejecutar pruebas del backend
+
           - task: NodeTool@0
             displayName: Instalar Node.js 24
             inputs:
@@ -51,6 +54,14 @@ stages:
           - script: npm run build
             workingDirectory: apps/web
             displayName: Compilar frontend
+
+          - script: npm run lint
+            workingDirectory: apps/web
+            displayName: Analizar frontend
+
+          - script: npm test
+            workingDirectory: apps/web
+            displayName: Ejecutar pruebas del frontend
 
   - stage: Publish
     displayName: Publicar imágenes en Docker Hub
